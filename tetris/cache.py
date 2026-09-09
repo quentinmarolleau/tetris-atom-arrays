@@ -13,12 +13,13 @@ import json
 import os
 import platform
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 __all__ = [
     "BenchmarkParameters",
     "algorithm_digest",
+    "cpu_model",
     "load_results",
     "save_results",
 ]
@@ -35,6 +36,7 @@ class BenchmarkParameters:
     seconds_per_task: float
     workers: int
     algorithm_digest: str
+    samples_per_task: int | None = None
 
     def fingerprint(self) -> str:
         payload = json.dumps(
@@ -42,11 +44,23 @@ class BenchmarkParameters:
                 "sizes": list(self.sizes),
                 "margin_variants": list(self.margin_variants),
                 "seconds_per_task": self.seconds_per_task,
+                "samples_per_task": self.samples_per_task,
                 "algorithm_digest": self.algorithm_digest,
             },
             sort_keys=True,
         )
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def cpu_model() -> str:
+    """Readable CPU name. `platform.processor()` answers `x86_64` on
+    Linux, which says nothing about the machine a timing was taken on."""
+    cpuinfo = Path("/proc/cpuinfo")
+    if cpuinfo.exists():
+        for line in cpuinfo.read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    return platform.processor() or platform.machine()
 
 
 def algorithm_digest(*paths: Path) -> str:
@@ -67,16 +81,17 @@ def save_results(
 ) -> None:
     payload = {
         "meta": {
-            "date": datetime.now(timezone.utc).isoformat(),
+            "date": datetime.now(UTC).isoformat(),
             "fingerprint": parameters.fingerprint(),
             "sizes": list(parameters.sizes),
             "margin_variants": list(parameters.margin_variants),
             "seconds_per_task": parameters.seconds_per_task,
+            "samples_per_task": parameters.samples_per_task,
             "workers": parameters.workers,
             "algorithm_digest": parameters.algorithm_digest,
             "seed_entropy": entropy,
             "cpu_count": os.cpu_count(),
-            "cpu_model": platform.processor() or platform.machine(),
+            "cpu_model": cpu_model(),
             **extra_meta,
         },
         "results": {

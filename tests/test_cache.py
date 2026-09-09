@@ -8,13 +8,13 @@ from tetris.cache import BenchmarkParameters, load_results, save_results
 
 
 def parameters(**overrides) -> BenchmarkParameters:
-    defaults = dict(
-        sizes=(4, 5, 6),
-        margin_variants=(False, True),
-        seconds_per_task=60.0,
-        workers=7,
-        algorithm_digest="abc123",
-    )
+    defaults = {
+        "sizes": (4, 5, 6),
+        "margin_variants": (False, True),
+        "seconds_per_task": 60.0,
+        "workers": 7,
+        "algorithm_digest": "abc123",
+    }
     return BenchmarkParameters(**{**defaults, **overrides})
 
 
@@ -40,6 +40,7 @@ def test_missing_file_is_not_an_error(tmp_path) -> None:
         {"margin_variants": (True,)},
         {"seconds_per_task": 30.0},
         {"algorithm_digest": "deadbeef"},
+        {"samples_per_task": 10_000},
     ],
 )
 def test_parameter_change_invalidates(tmp_path, override) -> None:
@@ -73,3 +74,11 @@ def test_entropy_is_recorded(tmp_path) -> None:
     meta = json.loads(path.read_text())["meta"]
     assert meta["seed_entropy"] == 4242
     assert "cpu_count" in meta
+
+
+def test_cpu_model_is_readable() -> None:
+    from tetris.cache import cpu_model
+
+    name = cpu_model()
+    assert name
+    assert name != "x86_64"
