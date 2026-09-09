@@ -20,11 +20,11 @@ from tetris.fast import (
 from tetris.stats import standard_error, wilson_interval
 
 __all__ = [
+    "build_tasks",
+    "run_displacement_benchmark",
+    "run_success_rate_benchmark",
     "task_generator",
     "task_seeds",
-    "build_tasks",
-    "run_success_rate_benchmark",
-    "run_displacement_benchmark",
 ]
 
 _SENTINEL = None

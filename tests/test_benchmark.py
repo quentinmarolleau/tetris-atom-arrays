@@ -69,7 +69,7 @@ def test_displacement_run_is_well_formed() -> None:
         (10, 16), samples_per_task=40, workers=2, entropy=13
     )
     assert set(results) == {10, 16}
-    for size, variants in results.items():
+    for variants in results.values():
         entry = variants["with_margin"]
         assert entry["samples"] == 40
         assert entry["attempts"] >= entry["samples"]

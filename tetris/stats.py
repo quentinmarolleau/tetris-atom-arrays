@@ -2,7 +2,7 @@
 
 import numpy as np
 
-__all__ = ["wilson_interval", "standard_error"]
+__all__ = ["standard_error", "wilson_interval"]
 
 
 def standard_error(successes: int, samples: int) -> float:

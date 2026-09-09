@@ -6,10 +6,10 @@ import pytest
 
 matplotlib.use("Agg")
 
-from matplotlib import pyplot as plt  # noqa: E402
+from matplotlib import pyplot as plt
 
-from tetris import AtomsConfiguration  # noqa: E402
-from tetris.display import format_motions, format_row  # noqa: E402
+from tetris import AtomsConfiguration
+from tetris.display import format_motions, format_row
 
 
 @pytest.fixture(autouse=True)

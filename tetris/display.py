@@ -5,8 +5,13 @@ import numpy as np
 from rich.console import Console
 from rich.table import Table
 
-__all__ = ["format_row", "format_motions", "print_header", "print_row",
-           "print_summary"]
+__all__ = [
+    "format_motions",
+    "format_row",
+    "print_header",
+    "print_row",
+    "print_summary",
+]
 
 
 def format_row(row: np.ndarray, target_start: int, target_size: int) -> str:
