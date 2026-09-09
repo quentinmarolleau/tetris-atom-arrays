@@ -4,3 +4,5 @@ __pycache__/
 __marimo__/
 .ruff_cache/
 .pytest_cache/
+.coverage
+.coverage.*
