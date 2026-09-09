@@ -1,0 +1,11 @@
+[project]
+name = "tweezers-array-analysis"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "marimo>=0.24.0",
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.3",
+    "rich>=15.0.0",
+    "ruff>=0.16.6",
+]

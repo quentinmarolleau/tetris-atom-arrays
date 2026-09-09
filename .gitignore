@@ -1,0 +1,6 @@
+.bateau_ivre/
+.venv/
+__pycache__/
+__marimo__/
+.ruff_cache/
+.pytest_cache/
