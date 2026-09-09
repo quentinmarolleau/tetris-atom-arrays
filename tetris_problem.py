@@ -303,7 +303,7 @@ def _(mo):
     mo.md(r"""
     #### Success rate
 
-    We can start by brutally plotting the raw results, separating the cases with and without the security margin. The bars are Wilson score intervals at one standard deviation. They are small – tens of thousands of runs sit behind each point – and they are asymmetric near a rate of one, where a symmetric bar would reach past the only values the quantity can take.
+    We can start by brutally plotting the raw results, separating the cases with and without the security margin. The bars are Wilson score intervals at one standard deviation. They are small, since each point rests on thousands to hundreds of thousands of runs, and they are asymmetric near a rate of one, where a symmetric bar would reach past one.
     """)
     return
 
@@ -453,7 +453,9 @@ def _(mo):
 
     Everything above is Python and not heavily optimized, so this says more about the implementation than about the algorithm. It is worth looking at anyway, if only to see how little of it is the algorithm.
 
-    The cost is the CPU time a worker spent, divided by the number of configurations it examined. Below $L \approx 30$ it barely moves: a row costs a fixed handful of NumPy calls whatever its length, and that overhead swamps the work. The fit is therefore restricted to the large end, where the per-site work has taken over.
+    The cost is the CPU time a worker spent, divided by the number of configurations it examined. Below $L \approx 30$ it barely moves: a row costs a fixed handful of NumPy calls whatever its length, and that overhead swamps the work. The fit is therefore restricted to the large end, where the per-site work has taken over. Even there the exponent stays close to 1 rather than the 2 the $L^2$ sites would suggest, so the overhead never really lets go over this range.
+
+    Individual points scatter by a few tens of percent. CPU time removes the effect of a worker being descheduled, but not the effect of sharing a physical core with another worker: two threads on one core each retire fewer instructions per second, and the time still counts. Shuffling the task order turns that into noise rather than a trend against $L$, which is the most that can be done without a serial timing pass.
     """)
     return
 
