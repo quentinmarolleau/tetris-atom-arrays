@@ -151,3 +151,17 @@ def test_margin_success_rate_regression(size: int, expected: float) -> None:
     # Wilson half-width at three sigma, widened for the small counts
     tolerance = 3 * np.sqrt(max(expected * (1 - expected), 1e-4) / samples)
     assert abs(rate - expected) < tolerance + 0.002, rate
+
+
+@pytest.mark.parametrize("size, margin", [(1, False), (1, True), (2, True)])
+def test_rejects_a_loading_array_with_no_target(size, margin) -> None:
+    with pytest.raises(ValueError, match="no target array"):
+        AtomsConfiguration(loading_array_size=size, margin=margin)
+
+
+def test_smallest_usable_arrays_are_accepted() -> None:
+    for size, margin in ((2, False), (4, True)):
+        config = AtomsConfiguration(loading_array_size=size, margin=margin)
+        assert config.target_size >= 1
+        config.construct_tetriminoes()
+        assert config.configuration_kept in (True, False)

@@ -78,6 +78,12 @@ class AtomsConfiguration:
         self.target_size, self.target_start = target_geometry(
             self.loading_array_size, margin
         )
+        if self.target_size < 1:
+            raise ValueError(
+                f"a loading array of size {self.loading_array_size} leaves "
+                f"no target array to fill"
+                + (" once the margin is taken off" if margin else "")
+            )
         self.contraction_ratio = (
             self.target_size / self.loading_array_size
         ) ** 2
