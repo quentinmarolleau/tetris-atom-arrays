@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from rich.console import Console
 
 from tetris import display, plotting
-from tetris.fast import target_geometry
+from tetris.fast import TargetWindow, target_geometry
 
 __all__ = ["AtomsConfiguration", "OccupationMatrix"]
 
@@ -20,19 +20,19 @@ type OccupationMatrix = NDArray[np.bool_] | list[list[bool]]
 class AtomsConfiguration:
     """A loaded configuration and the rearrangement strategy for it.
 
-    The target array is a square of side `loading_array_size / sqrt(2)`,
+    The target array has a natural side of `loading_array_size / sqrt(2)`,
     centred in the loading array, so that it holds about half the sites
     and therefore about as many sites as the 50 percent loading provides
-    atoms. With `margin`, one site is taken off that side first, which
+    atoms. `reshape_target` adjusts that side one axis at a time, so
+    (0, -1) drops a column and (-1, -1) drops a row and a column, which
     is the convention Wang et al. use in their own simulations.
+    `target_shape` names the two sides outright instead.
     """
 
     rng: np.random.Generator
     loading_array_size: int
     occupation_matrix: np.ndarray
-    margin: bool
-    target_size: int
-    target_start: int
+    window: TargetWindow
     contraction_ratio: float
     tetriminoes_matrix: np.ndarray | None
     tetriminoes_motions: list[list[tuple[int, int]]] | None
@@ -42,7 +42,8 @@ class AtomsConfiguration:
         self,
         loading_array_size: int | None = None,
         occupation_matrix: OccupationMatrix | None = None,
-        margin: bool = True,
+        reshape_target: tuple[int, int] = (0, 0),
+        target_shape: tuple[int, int] | None = None,
         rng: np.random.Generator | None = None,
     ):
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -77,19 +78,12 @@ class AtomsConfiguration:
 
         self.occupation_matrix = matrix
         self.loading_array_size = matrix.shape[0]
-        self.margin = margin
-        self.target_size, self.target_start = target_geometry(
-            self.loading_array_size, margin
+        self.window = target_geometry(
+            self.loading_array_size, reshape_target, target_shape
         )
-        if self.target_size < 1:
-            raise ValueError(
-                f"a loading array of size {self.loading_array_size} leaves "
-                f"no target array to fill"
-                + (" once the margin is taken off" if margin else "")
-            )
         self.contraction_ratio = (
-            self.target_size / self.loading_array_size
-        ) ** 2
+            self.window.sites / self.loading_array_size**2
+        )
 
         # Populated by construct_tetriminoes()
         self.tetriminoes_matrix = None
@@ -103,8 +97,8 @@ class AtomsConfiguration:
     def _pack_row(
         loaded_row: np.ndarray,
         shift: int,
-        target_size: int,
-        target_start: int,
+        columns: int,
+        column_start: int,
     ) -> tuple[np.ndarray, int, list[tuple[int, int]]]:
         """Rearrange one row's atoms towards the target columns. Returns
         the packed row, the shift to carry into the next one, and the
@@ -117,32 +111,30 @@ class AtomsConfiguration:
         atoms_in_row = positions.size
         packed = np.zeros_like(loaded_row)
 
-        if atoms_in_row < target_size:
+        if atoms_in_row < columns:
             # Deal the atoms round the target window from the running
             # shift, which spreads successive rows over the columns that
             # are furthest behind. Wrapping is deliberate: it is what
             # makes the staircase of tetriminoes.
-            columns = target_start + (shift + np.arange(atoms_in_row)) % (
-                target_size
-            )
-            packed[columns] = True
-            destinations = np.sort(columns)
+            filled = column_start + (shift + np.arange(atoms_in_row)) % columns
+            packed[filled] = True
+            destinations = np.sort(filled)
             moving = positions
-            next_shift = (shift + atoms_in_row) % target_size
+            next_shift = (shift + atoms_in_row) % columns
         else:
             # The row already has enough atoms to serve every target
             # column. Fill the window and leave the surplus atoms where
             # they are rather than dragging them along; a row can only
             # ever give one atom per column, so nothing is lost.
-            destinations = target_start + np.arange(target_size)
+            destinations = column_start + np.arange(columns)
             first = min(
-                max(int(np.searchsorted(positions, target_start)), 0),
-                atoms_in_row - target_size,
+                max(int(np.searchsorted(positions, column_start)), 0),
+                atoms_in_row - columns,
             )
-            moving = positions[first : first + target_size]
+            moving = positions[first : first + columns]
             packed[destinations] = True
             packed[positions[:first]] = True
-            packed[positions[first + target_size :]] = True
+            packed[positions[first + columns :]] = True
             # a row that serves every column hands on no staircase offset
             next_shift = shift
 
@@ -154,14 +146,17 @@ class AtomsConfiguration:
 
     @staticmethod
     def _find_deficient_columns(
-        matrix: np.ndarray, target_start: int, target_size: int
+        matrix: np.ndarray, window: TargetWindow
     ) -> list[tuple[int, int]]:
         """(column index, atom count) for each target column holding
-        fewer than target_size atoms. Indices are relative to the target
-        window. A configuration is kept only if this list is empty."""
-        target_columns = matrix[:, target_start : target_start + target_size]
+        fewer atoms than the target has rows. Indices are relative to the
+        target window. A configuration is kept only if this list is
+        empty."""
+        target_columns = matrix[
+            :, window.column_start : window.column_start + window.columns
+        ]
         column_counts = target_columns.sum(axis=0)
-        deficient = np.flatnonzero(column_counts < target_size)
+        deficient = np.flatnonzero(column_counts < window.rows)
         return [
             (int(column), int(column_counts[column])) for column in deficient
         ]
@@ -179,15 +174,15 @@ class AtomsConfiguration:
 
         if console:
             display.print_header(
-                console,
-                self.loading_array_size,
-                self.target_size,
-                self.target_start,
+                console, self.loading_array_size, self.window
             )
 
         for index, loaded_row in enumerate(self.occupation_matrix):
             packed, shift, motions = self._pack_row(
-                loaded_row, shift, self.target_size, self.target_start
+                loaded_row,
+                shift,
+                self.window.columns,
+                self.window.column_start,
             )
             tetriminoes_matrix[index] = packed
             tetriminoes_motions.append(motions)
@@ -205,12 +200,11 @@ class AtomsConfiguration:
                     packed,
                     motions,
                     shift,
-                    self.target_start,
-                    self.target_size,
+                    self.window,
                 )
 
         deficient_columns = self._find_deficient_columns(
-            tetriminoes_matrix, self.target_start, self.target_size
+            tetriminoes_matrix, self.window
         )
         kept = not deficient_columns
 
@@ -245,17 +239,22 @@ class AtomsConfiguration:
             )
             for motions in self.tetriminoes_motions
         )
-        window = self.tetriminoes_matrix[
-            :, self.target_start : self.target_start + self.target_size
+        # the row moves above are measured across the window's columns;
+        # the compression below is measured down its rows, which is a
+        # different extent as soon as the target is not square
+        packed_window = self.tetriminoes_matrix[
+            :,
+            self.window.column_start : self.window.column_start
+            + self.window.columns,
         ]
-        destinations = self.target_start + np.arange(self.target_size)
-        for column in range(self.target_size):
-            rows = np.flatnonzero(window[:, column])
+        destinations = self.window.row_start + np.arange(self.window.rows)
+        for column in range(self.window.columns):
+            rows = np.flatnonzero(packed_window[:, column])
             first = min(
-                max(int(np.searchsorted(rows, self.target_start)), 0),
-                rows.size - self.target_size,
+                max(int(np.searchsorted(rows, self.window.row_start)), 0),
+                rows.size - self.window.rows,
             )
-            moving = rows[first : first + self.target_size]
+            moving = rows[first : first + self.window.rows]
             total += int(np.abs(moving - destinations).max(initial=0))
         return int(total)
 

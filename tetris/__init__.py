@@ -5,6 +5,7 @@ Reproduction of Wang et al., Phys. Rev. Applied 19, 054032 (2023).
 
 from tetris.config import AtomsConfiguration, OccupationMatrix
 from tetris.fast import (
+    TargetWindow,
     configuration_kept,
     parallel_displacements,
     target_geometry,
@@ -13,6 +14,7 @@ from tetris.fast import (
 __all__ = [
     "AtomsConfiguration",
     "OccupationMatrix",
+    "TargetWindow",
     "configuration_kept",
     "parallel_displacements",
     "target_geometry",

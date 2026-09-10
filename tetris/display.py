@@ -5,6 +5,8 @@ import numpy as np
 from rich.console import Console
 from rich.table import Table
 
+from tetris.fast import TargetWindow
+
 __all__ = [
     "format_motions",
     "format_row",
@@ -14,21 +16,22 @@ __all__ = [
 ]
 
 
-def format_row(row: np.ndarray, target_start: int, target_size: int) -> str:
+def format_row(row: np.ndarray, window: TargetWindow) -> str:
     """A boolean row as Rich markup: a bullet per atom, green inside the
-    target region and yellow outside to match the plot colours, a dot per
-    empty site, and bars delimiting the target region."""
-    target_end = target_start + target_size
+    target columns and yellow outside to match the plot colours, a dot
+    per empty site, and bars delimiting the target columns."""
+    start = window.column_start
+    end = start + window.columns
     symbols = []
     for index, occupied in enumerate(row):
         if not occupied:
             symbols.append("[dim]·[/dim]")
-        elif target_start <= index < target_end:
+        elif start <= index < end:
             symbols.append("[green]●[/green]")
         else:
             symbols.append("[yellow]●[/yellow]")
-    symbols.insert(target_end, "[bold cyan]|[/bold cyan]")
-    symbols.insert(target_start, "[bold cyan]|[/bold cyan]")
+    symbols.insert(end, "[bold cyan]|[/bold cyan]")
+    symbols.insert(start, "[bold cyan]|[/bold cyan]")
     return "  ".join(symbols)
 
 
@@ -49,16 +52,15 @@ def format_motions(motions: list[tuple[int, int]]) -> str:
 
 
 def print_header(
-    console: Console,
-    loading_array_size: int,
-    target_size: int,
-    target_start: int,
+    console: Console, loading_array_size: int, window: TargetWindow
 ) -> None:
     info = Table(show_header=False, box=None, pad_edge=False)
     info.add_column(style="bold")
     info.add_row("Loading array size", str(loading_array_size))
-    info.add_row("Target size", str(target_size))
-    info.add_row("Target start", str(target_start))
+    info.add_row("Target shape", f"{window.rows} x {window.columns}")
+    info.add_row(
+        "Target start", f"{window.row_start}, {window.column_start}"
+    )
     console.print(info)
 
 
@@ -69,8 +71,7 @@ def print_row(
     packed_row: np.ndarray,
     motions: list[tuple[int, int]],
     shift: int,
-    target_start: int,
-    target_size: int,
+    window: TargetWindow,
 ) -> None:
     moved = sum(
         1 for source, destination in motions if source != destination
@@ -78,12 +79,12 @@ def print_row(
     console.rule(f"[bold blue]Row {index}[/bold blue]", style="blue")
     console.print(
         f"[bold]{'Loaded':<10}[/bold] "
-        f"{format_row(loaded_row, target_start, target_size)}"
+        f"{format_row(loaded_row, window)}"
         f"  [dim]({loaded_row.sum()} atoms)[/dim]"
     )
     console.print(
         f"[bold]{'Corrected':<10}[/bold] "
-        f"{format_row(packed_row, target_start, target_size)}"
+        f"{format_row(packed_row, window)}"
         f"  [dim]({moved} motions)[/dim]"
     )
     console.print(f"[bold]{'Motions':<10}[/bold] {format_motions(motions)}")

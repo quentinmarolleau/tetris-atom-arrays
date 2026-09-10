@@ -10,6 +10,8 @@ from matplotlib.collections import PatchCollection
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle, Rectangle
 
+from tetris.fast import TargetWindow
+
 __all__ = ["draw_configuration", "plot_configuration"]
 
 MAX_TICKS = 10
@@ -19,8 +21,7 @@ def draw_configuration(
     ax: Axes,
     matrix: np.ndarray,
     title: str,
-    target_start: int,
-    target_size: int,
+    window: TargetWindow,
     atom_radius: float,
     show_ylabel: bool = True,
 ) -> None:
@@ -30,9 +31,9 @@ def draw_configuration(
     ax.imshow(matrix, cmap="gray", interpolation="none")
     ax.add_patch(
         Rectangle(
-            (target_start - 0.5, target_start - 0.5),
-            target_size,
-            target_size,
+            (window.column_start - 0.5, window.row_start - 0.5),
+            window.columns,
+            window.rows,
             fill=False,
             edgecolor="blue",
             linestyle="--",
@@ -43,8 +44,8 @@ def draw_configuration(
     occupied_yx = np.argwhere(matrix)
     target_mask = np.zeros_like(matrix, dtype=bool)
     target_mask[
-        target_start : target_start + target_size,
-        target_start : target_start + target_size,
+        window.row_start : window.row_start + window.rows,
+        window.column_start : window.column_start + window.columns,
     ] = True
     inside = target_mask[occupied_yx[:, 0], occupied_yx[:, 1]]
 
@@ -87,7 +88,6 @@ def plot_configuration(
     if which in ("tetriminoes", "all") and config.tetriminoes_matrix is None:
         config.construct_tetriminoes()
 
-    geometry = (config.target_start, config.target_size)
     if which == "all":
         fig, (loading_ax, packed_ax) = plt.subplots(
             1, 2, figsize=(2 * size, size), sharey=True
@@ -96,14 +96,14 @@ def plot_configuration(
             loading_ax,
             config.occupation_matrix,
             "Initial atom configuration",
-            *geometry,
+            config.window,
             atom_radius,
         )
         draw_configuration(
             packed_ax,
             config.tetriminoes_matrix,
             "Tetrimino-packed configuration",
-            *geometry,
+            config.window,
             atom_radius,
             show_ylabel=False,
         )
@@ -118,7 +118,7 @@ def plot_configuration(
                 if packed
                 else "Initial atom configuration"
             ),
-            *geometry,
+            config.window,
             atom_radius,
         )
 
