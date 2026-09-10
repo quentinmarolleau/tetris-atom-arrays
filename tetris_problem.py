@@ -17,11 +17,11 @@ def introduction(mo):
     mo.md(r"""
     ## Introduction
 
-    I recently discovered the [Wang et al. 2023 [1]](https://doi.org/10.1103/PhysRevApplied.19.054032) paper, discussing a possible algorithm achieving a fast atomic array reconfiguration, given a detected occupation matrix of atoms. Indeed the random loading of individual atoms in an array of tzeezers leads to a probability half of occupation of each site [[2](https://doi.org/10.1103/PhysRevLett.89.023005),[3](https://doi.org/10.1038/35082512)]. Therefore, the preparation of a dense array – maximazing the number of neighbouring atoms – requires a global reorganisation of the initially loaded array of atoms.
+    I recently discovered the [Wang et al. 2023 [1]](https://doi.org/10.1103/PhysRevApplied.19.054032) paper, discussing a possible algorithm achieving a fast atomic array reconfiguration, given a detected occupation matrix of atoms. Indeed the random loading of individual atoms in an array of tweezers leads to a probability half of occupation of each site [[2](https://doi.org/10.1103/PhysRevLett.89.023005),[3](https://doi.org/10.1038/35082512)]. Therefore, the preparation of a dense array – maximizing the number of neighbouring atoms – requires a global reorganisation of the initially loaded array of atoms.
 
     The proposal made in reference [[1]](https://doi.org/10.1103/PhysRevApplied.19.054032) suggests a sequential (row by row) treatment, compatible with a streaming – row after row – of data from an EMCCD camera, triggering correction operations even before the full image is received by the host server orchestrating the experimental runs.
 
-    In this notebook, I will try to implement a Python version of that algorithm, and reproduce the benchmarkings that are claimed in the publication. This work is a proof of principle, a real production ready version of the program running in a lab should trim many several steps of what follows (only there for testing and pedagogical reasons), and probably also be implemented in a statically typed and compiled language such as C or Rust.
+    In this notebook, I will try to implement a Python version of that algorithm, and reproduce the benchmarkings that are claimed in the publication. This work is a proof of principle, a real production ready version of the program running in a lab should trim several steps of what follows (only there for testing and pedagogical reasons), and probably also be implemented in a statically typed and compiled language such as C or Rust.
     """)
     return
 
