@@ -163,14 +163,13 @@ def imports():
     # built-in
     import inspect
     import os
-    from math import isqrt, sqrt
+    from math import sqrt
     from pathlib import Path
 
     # third-party
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
-    from matplotlib.colors import LinearSegmentedColormap
 
     # this notebook's own package
     from tetris import (
@@ -187,6 +186,7 @@ def imports():
         salvageable_share,
     )
     from tetris.benchmark import (
+        DISPLACEMENT_RESHAPE,
         build_tasks,
         run_displacement_benchmark,
         run_success_rate_benchmark,
@@ -197,11 +197,12 @@ def imports():
         load_results,
         save_results,
     )
+    from tetris.variants import variant_key, variant_label
 
     return (
         AtomsConfiguration,
         BenchmarkParameters,
-        LinearSegmentedColormap,
+        DISPLACEMENT_RESHAPE,
         Path,
         algorithm_digest,
         build_tasks,
@@ -210,7 +211,6 @@ def imports():
         expected_wasted_atoms,
         expected_wasted_atoms_per_row,
         inspect,
-        isqrt,
         load_results,
         mo,
         np,
@@ -224,6 +224,8 @@ def imports():
         save_results,
         sqrt,
         target_geometry,
+        variant_key,
+        variant_label,
     )
 
 
@@ -236,13 +238,16 @@ def _(mo):
 
 
 @app.cell
-def notebook_constants(Path, os):
+def notebook_constants(Path, os, variant_key, variant_label):
     # general static parameters for the notebook (usually default values)
     DEFAULT_LOADING_ARRAY_SIZE: int = 18
 
     # benchmark sweep
     LOADING_ARRAY_SIZES: tuple[int, ...] = tuple(range(4, 101))
-    MARGIN_VARIANTS: tuple[bool, ...] = (False, True)
+    # (rows, columns) taken off the natural target side. (0, 0) asks for
+    # the whole thing, (0, -1) gives up a column, (-1, -1) a column and a
+    # row, which is the convention the paper's simulations use.
+    RESHAPE_VARIANTS: tuple[tuple[int, int], ...] = ((0, 0), (0, -1), (-1, -1))
     N_WORKERS: int = max(1, (os.cpu_count() or 1) - 1)
 
     # success rate: a fixed wall clock budget per task. The cost of a
@@ -256,10 +261,10 @@ def notebook_constants(Path, os):
     DISPLACEMENT_SIZES: tuple[int, ...] = tuple(range(8, 101, 4))
     DISPLACEMENT_SAMPLES: int = 10_000
 
-    # curve styles shared by the plotting cells
-    VARIANT_STYLES: tuple[tuple[str, str, str], ...] = (
-        ("no_margin", "No margin", "o"),
-        ("with_margin", "With margin", "s"),
+    # curve styles shared by the plotting cells, one per swept reshape
+    VARIANT_STYLES: tuple[tuple[str, str, str], ...] = tuple(
+        (variant_key(_reshape), variant_label(_reshape), _marker)
+        for _reshape, _marker in zip(RESHAPE_VARIANTS, ("o", "^", "s"))
     )
 
     _root = Path(__file__).parent
@@ -280,8 +285,8 @@ def notebook_constants(Path, os):
         DISPLACEMENT_SIZES,
         DISPLACEMENT_STATS_PATH,
         LOADING_ARRAY_SIZES,
-        MARGIN_VARIANTS,
         N_WORKERS,
+        RESHAPE_VARIANTS,
         SECONDS_PER_TASK,
         VARIANT_STYLES,
     )
@@ -395,8 +400,8 @@ def benchmark_rejection_rate(
     BENCHMARK_STATS_PATH: "Path",
     BenchmarkParameters,
     LOADING_ARRAY_SIZES: tuple[int, ...],
-    MARGIN_VARIANTS: tuple[bool, ...],
     N_WORKERS: int,
+    RESHAPE_VARIANTS: tuple[tuple[int, int], ...],
     SECONDS_PER_TASK: float,
     algorithm_digest,
     load_results,
@@ -406,7 +411,7 @@ def benchmark_rejection_rate(
 ):
     success_rate_parameters = BenchmarkParameters(
         sizes=LOADING_ARRAY_SIZES,
-        margin_variants=MARGIN_VARIANTS,
+        reshape_variants=RESHAPE_VARIANTS,
         seconds_per_task=SECONDS_PER_TASK,
         workers=N_WORKERS,
         algorithm_digest=algorithm_digest(*ALGORITHM_SOURCES),
@@ -419,7 +424,7 @@ def benchmark_rejection_rate(
         _entropy = np.random.SeedSequence().entropy
         success_rate_stats = run_success_rate_benchmark(
             sizes=LOADING_ARRAY_SIZES,
-            margin_variants=MARGIN_VARIANTS,
+            reshape_variants=RESHAPE_VARIANTS,
             seconds_per_task=SECONDS_PER_TASK,
             workers=N_WORKERS,
             entropy=_entropy,
@@ -466,9 +471,7 @@ def success_rate_plot(
     sizes_arr,
     success_rate_stats,
 ):
-    fig_success_rate, (ax_success_full, ax_success_zoom) = plt.subplots(
-        2, 1, figsize=(10, 7), sharex=True
-    )
+    fig_success_rate, ax_success_rate = plt.subplots(figsize=(10, 5))
     for _variant, _label, _marker in VARIANT_STYLES:
         _rates = np.array(
             [
@@ -490,27 +493,21 @@ def success_rate_plot(
                 - _rates,
             ]
         )
-        for _ax in (ax_success_full, ax_success_zoom):
-            _ax.errorbar(
-                sizes_arr,
-                _rates,
-                yerr=_errors,
-                fmt=_marker,
-                markersize=4,
-                capsize=2,
-                label=_label,
-            )
+        ax_success_rate.errorbar(
+            sizes_arr,
+            _rates,
+            yerr=_errors,
+            fmt=_marker,
+            markersize=4,
+            capsize=2,
+            label=_label,
+        )
 
-    ax_success_full.set_ylabel("Success rate")
-    ax_success_full.set_title("Success rate vs. loading array size")
-    ax_success_full.grid(alpha=0.3)
-    ax_success_full.legend()
-
-    ax_success_zoom.set_ylim(0.99, 1.0005)
-    ax_success_zoom.set_xlabel("Loading array size $L$")
-    ax_success_zoom.set_ylabel("Success rate")
-    ax_success_zoom.set_title("Same data, zoomed on the margin variant")
-    ax_success_zoom.grid(alpha=0.3)
+    ax_success_rate.set_xlabel("Loading array size $L$")
+    ax_success_rate.set_ylabel("Success rate")
+    ax_success_rate.set_title("Success rate vs. loading array size")
+    ax_success_rate.grid(alpha=0.3)
+    ax_success_rate.legend()
 
     fig_success_rate.tight_layout()
     fig_success_rate
@@ -566,20 +563,15 @@ def success_rate_vs_contraction_ratio_plot(
 
 
 @app.cell
-def success_rate_heatmap_plot(
-    LinearSegmentedColormap,
+def success_rate_precision_plot(
     VARIANT_STYLES: tuple[tuple[str, str, str], ...],
     np,
     plt,
     success_rate_stats,
 ):
     # (loading array size, contraction ratio) isn't a regular grid — each
-    # size only has two ratios (no_margin/with_margin) — so a scatter
-    # colored by success rate stands in for an imshow-style heatmap
-
-    _cmap = LinearSegmentedColormap.from_list(
-        "purple_to_green", ["tab:purple", "tab:red", "tab:green"]
-    )
+    # size only has one ratio per reshape variant — so a scatter colored
+    # by precision stands in for an imshow-style heatmap
     _variants = tuple(_style[0] for _style in VARIANT_STYLES)
 
     def _column(key):
@@ -595,36 +587,25 @@ def success_rate_heatmap_plot(
         [_size for _size in success_rate_stats for _ in _variants]
     )
     _ratios = _column("contraction_ratio")
-    _rates = _column("success_rate")
     # relative precision of each point, which unlike the spread of the
     # Bernoulli draws does say how well the rate is known
-    _relative_errors = 100 * _column("standard_error") / _rates
+    _relative_errors = 100 * _column("standard_error") / _column("success_rate")
 
-    fig_heatmap, (ax_heatmap, ax_heatmap_error) = plt.subplots(
-        1, 2, figsize=(16, 6)
-    )
-    _scatter = ax_heatmap.scatter(
-        _sizes, _ratios, c=_rates, cmap=_cmap, vmin=0.5, vmax=1, s=40
-    )
-    fig_heatmap.colorbar(_scatter, ax=ax_heatmap, label="Success rate")
-    ax_heatmap.set_xlabel("Loading array size $L$")
-    ax_heatmap.set_ylabel("Contraction ratio")
-    ax_heatmap.set_title("Success rate")
-
-    _scatter_error = ax_heatmap_error.scatter(
+    fig_precision, ax_precision = plt.subplots(figsize=(10, 5))
+    _scatter = ax_precision.scatter(
         _sizes, _ratios, c=_relative_errors, cmap="viridis", s=40
     )
-    fig_heatmap.colorbar(
-        _scatter_error,
-        ax=ax_heatmap_error,
+    fig_precision.colorbar(
+        _scatter,
+        ax=ax_precision,
         label="standard error / success rate (%)",
     )
-    ax_heatmap_error.set_xlabel("Loading array size $L$")
-    ax_heatmap_error.set_ylabel("Contraction ratio")
-    ax_heatmap_error.set_title("Relative precision of each point")
+    ax_precision.set_xlabel("Loading array size $L$")
+    ax_precision.set_ylabel("Contraction ratio")
+    ax_precision.set_title("How well each point is known")
 
-    fig_heatmap.tight_layout()
-    fig_heatmap
+    fig_precision.tight_layout()
+    fig_precision
     return
 
 
@@ -656,7 +637,6 @@ def quote_expected_wasted_atoms(expected_wasted_atoms_per_row, quote):
 def wasted_atoms_plot(
     VARIANT_STYLES: tuple[tuple[str, str, str], ...],
     expected_wasted_atoms,
-    isqrt,
     np,
     overfull_row_probability,
     plt,
@@ -665,10 +645,8 @@ def wasted_atoms_plot(
 ):
     fig_waste, (ax_waste, ax_overfull) = plt.subplots(1, 2, figsize=(11, 4))
     for _variant, _label, _marker in VARIANT_STYLES:
-        # the target is square here, so its width comes back out of the
-        # atom count the benchmark recorded
         _columns = [
-            isqrt(success_rate_stats[_size][_variant]["target_number_of_atoms"])
+            success_rate_stats[_size][_variant]["target_columns"]
             for _size in sizes_arr
         ]
         ax_waste.semilogy(
@@ -754,10 +732,12 @@ def atom_count_bound_plot(
     sizes_arr,
     success_rate_stats,
 ):
-    # below this many observed rejections the share is a ratio of two
-    # tiny counts and says nothing; with the margin that silences most
-    # of the range, which is itself the point
-    MIN_REJECTIONS = 100
+    # the share carries an error of about sqrt(1 / rejections), so a
+    # thousand observed rejections buys roughly three percentage points.
+    # Below that it is a ratio of two small counts and says nothing.
+    # With a margin this silences most of the range, which is itself the
+    # point: those rejections are too rare to attribute
+    MIN_REJECTIONS = 1000
 
     fig_bound, (ax_bound, ax_salvage) = plt.subplots(1, 2, figsize=(11, 4))
     for _variant, _label, _marker in VARIANT_STYLES:
@@ -813,7 +793,7 @@ def atom_count_bound_plot(
     ax_salvage.set_ylabel("Salvageable rejections (%)")
     ax_salvage.set_title(
         f"Rejections that held enough atoms\n(sizes with at least "
-        f"{MIN_REJECTIONS} observed rejections)"
+        f"{MIN_REJECTIONS:,} observed rejections)"
     )
     ax_salvage.grid(alpha=0.3)
     ax_salvage.legend()
@@ -943,6 +923,7 @@ def quote_parallel_displacements(parallel_displacements, quote):
 def benchmark_displacements(
     ALGORITHM_SOURCES: "tuple[Path, ...]",
     BenchmarkParameters,
+    DISPLACEMENT_RESHAPE: tuple[int, int],
     DISPLACEMENT_SAMPLES: int,
     DISPLACEMENT_SIZES: tuple[int, ...],
     DISPLACEMENT_STATS_PATH: "Path",
@@ -955,7 +936,7 @@ def benchmark_displacements(
 ):
     displacement_parameters = BenchmarkParameters(
         sizes=DISPLACEMENT_SIZES,
-        margin_variants=(True,),
+        reshape_variants=(DISPLACEMENT_RESHAPE,),
         seconds_per_task=0.0,
         samples_per_task=DISPLACEMENT_SAMPLES,
         workers=N_WORKERS,
@@ -983,25 +964,26 @@ def benchmark_displacements(
 
 
 @app.cell
-def displacement_plot(displacements, np, plt):
+def displacement_plot(DISPLACEMENT_RESHAPE, displacements, np, plt, variant_key):
     PAPER_TETRIS_EXPONENT = 1.03
     PAPER_HUNGARIAN_EXPONENT = 1.6
+    _key = variant_key(DISPLACEMENT_RESHAPE)
 
     _atoms = np.array(
         [
-            displacements[_size]["with_margin"]["target_number_of_atoms"]
+            displacements[_size][_key]["target_number_of_atoms"]
             for _size in sorted(displacements)
         ]
     )
     _means = np.array(
         [
-            displacements[_size]["with_margin"]["mean"]
+            displacements[_size][_key]["mean"]
             for _size in sorted(displacements)
         ]
     )
     _errors = np.array(
         [
-            displacements[_size]["with_margin"]["standard_error"]
+            displacements[_size][_key]["standard_error"]
             for _size in sorted(displacements)
         ]
     )
@@ -1014,7 +996,7 @@ def displacement_plot(displacements, np, plt):
         fmt="o",
         markersize=4,
         capsize=2,
-        label="This implementation, with margin",
+        label="This implementation, one row and one column off",
     )
     if _atoms.size > 2:
         (_slope, _intercept), _covariance = np.polyfit(
@@ -1081,7 +1063,7 @@ def floor_effect_plot(np, plt, sqrt):
     ax_ratio.axhline(0.5, color="tab:red", ls="--", label="1/2")
     ax_ratio.set_xlabel("Loading array size $L$")
     ax_ratio.set_ylabel(r"$(\ell/L)^2$")
-    ax_ratio.set_title("Contraction ratio, no margin")
+    ax_ratio.set_title("Contraction ratio, no reshape")
     ax_ratio.grid(alpha=0.3)
     ax_ratio.legend()
 
