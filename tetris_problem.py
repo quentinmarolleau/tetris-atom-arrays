@@ -31,6 +31,8 @@ def tetris_algorithm_docs(mo):
     mo.md(r"""
     ## Tetris algorithm implementation
 
+    ### Forewords
+
     In what follows, we refer as *loading array* the large array of sites in which can be loaded, and *target array* the subset of sites that must be densely populated after selective sorting. In this notebook we address only the square shape for the loading and target arrays, but the problem can be easily generalized to other shapes (staggered, Kagome, hexagonal...).
 
     ```
@@ -49,6 +51,107 @@ def tetris_algorithm_docs(mo):
     .  empty site   o  atom occupying a site                 .  empty site   o  atom occupying a site
 
     ```
+
+    ### Idea of the algorithm
+
+    The idea of the authors is to proceed to the sorting in two steps:
+
+    1. "**Tetrimino constructions**": (that's the actually funny part 😄) row after row atoms are horizontally packed in a way that will nicely kiss the shape of the atoms arranged in the previous rows. It might seem a bit abstract at this stage, but the main idea is this steps mimics the winning strategy of the [Tetris](https://tetris.com/) game, and that it can be executed with rows configurations loaded from a FIFO fed by an imaging camera (and an appropriate FPGA-based streaming of the data).
+    2. "**Tetrimino elimination**": after checking that at the end of the first step we landed on an intermediate configuration that can fill the target array entirely (no vertical column is lacking of atoms) we vertically stack the "tower" of atoms to obtain the final compact configuration that we aimed.
+
+    To give some feeling of the idea of the algorithm we can do again a small ASCII cartoon, representing an horizontal "slice" of the array:
+
+    ```
+
+    |  .   . | .   o   .   .   . | o   o  |                  |  .   . | o   o   o   .   . | .   .  |
+    |  .   o | o   .   .   o   o | .   .  |                  |  .   . | o   o   .   o   o | .   .  |
+    |  o   . | .   o   o   .   . | .   o  |                  |  .   . | o   .   o   o   o | .   .  |
+    |  o   o | o   .   o   o   o | o   .  |    Tetrimino     |  .   o | o   o   o   o   o | o   .  |
+    |  .   . | .   o   .   o   . | .   o  |    construct     |  .   . | .   o   o   o   . | .   .  |
+    |  o   . | .   o   o   o   . | .   .  | ---------------> |  .   . | o   o   o   .   o | .   .  |
+    |  .   o | .   .   .   .   . | o   .  |                  |  .   . | .   .   .   o   o | .   .  |
+    |  .   o | o   .   .   o   . | o   o  |                  |  .   . | o   o   o   o   o | .   .  |
+
+    ```
+
+    After the Tetrimino construct procedure, we end up with blocks that can nicely coincide into each other after vertical translation. We will see clearer examples of it below.
+
+    ### Simple implementation
+
+    By *simple*, I mean here without having too much concerns about the performance optimisation, the goal is to have here a comprehensible proof of concept. We embed the implementation into the [`AtomsConfiguration`](source:tetris/config.py#AtomsConfiguration) class.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def atoms_configuration_docs(mo):
+    mo.md(r"""
+    The algorithm lives in the [`tetris` package](source:tetris/__init__.py) next to this notebook, rather than in a cell, so that it can be imported by the benchmark workers and covered by tests. [`AtomsConfiguration`](source:tetris/config.py#AtomsConfiguration) is in charge of:
+
+    1. Generating a random occupation matrix (probability half for each loading site) – or alternatively loading a manually chosen one.
+    2. Simulating the tetris algorithm execution flow on the generated occupation matrix. This is achieved by the [`construct_tetriminoes`](source:tetris/config.py#AtomsConfiguration.construct_tetriminoes) method which creates several attributes: [`tetriminoes_matrix`](source:tetris/config.py#AtomsConfiguration.tetriminoes_matrix) (the matrix with atoms horizontally compactified), [`tetriminoes_motions`](source:tetris/config.py#AtomsConfiguration.tetriminoes_motions) (the list of motions to realize so as to prepare the tetriminoes matrix, starting from the loaded matrix).
+    3. A [`configuration_kept`](source:tetris/config.py#AtomsConfiguration.configuration_kept) attribute is also created after the execution of `construct_tetriminoes`, to know if a loaded configuration should be discarded before starting the vertical stacking of the atoms. This happens if – after `construct_tetriminoes` execution – at least one column of the loading array does not contain enough atoms to fill the corresponding column of the target array.
+    4. Counting the parallel displacements that the rearrangement costs, with [`count_parallel_displacements`](source:tetris/config.py#AtomsConfiguration.count_parallel_displacements).
+    5. Plotting the loaded and tetriminoes configurations, with the [`plot_configuration`](source:tetris/config.py#AtomsConfiguration.plot_configuration) method.
+
+    A row is packed by dealing its atoms round the target window from a running shift. For a uniform square target that is the same assignment as the rule stated in [[1]](https://doi.org/10.1103/PhysRevApplied.19.054032), which always serves the columns that are furthest behind, and the two agree on every configuration the test suite throws at them. The packing itself is one method:
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def quote_helper(Path, inspect, mo, os):
+    def quote(obj, language: str = "python"):
+        """Fenced source of an imported object, badged with where it
+        came from. The website generator reads `file=`, `class=` and
+        `line=` off the fence and turns them into a badge opening the
+        whole module, so deriving all three from the object keeps them
+        right when the package moves.
+
+        These blocks are for the post, not for reading here, where the
+        source is one jump away in the editor. Setting NO_SOURCE_QUOTES
+        keeps them out of the way while the notebook is being worked
+        on; the generator sets nothing, so its run always gets them."""
+        if os.environ.get("NO_SOURCE_QUOTES"):
+            return None
+        lines, start = inspect.getsourcelines(obj)
+        root = Path(__file__).parent.resolve()
+        path = Path(inspect.getsourcefile(obj)).resolve().relative_to(root)
+        meta = f"file={path} line={start}"
+        owner = getattr(obj, "__qualname__", "").rpartition(".")[0]
+        if owner:
+            meta += f" class={owner}"
+        return mo.md(f"```{language} {meta}\n{''.join(lines).rstrip()}\n```")
+
+    return (quote,)
+
+
+@app.cell(hide_code=True)
+def quote_pack_row(AtomsConfiguration, quote):
+    quote(AtomsConfiguration._pack_row)
+    return
+
+
+@app.cell(hide_code=True)
+def testing_class_intro(mo):
+    mo.md(r"""
+    ### Testing the class
+
+    Let's generate a randomly loaded matrix, [visualize it](source:tetris/plotting.py#draw_configuration) and execute the tetris algorithm on it. The verbose run [prints every row as it is packed](source:tetris/display.py#print_row).
+
+    We start by loading the dependencies we need, including the local implementation of a [`tetris` package](source:tetris/__init__.py). The source code is downloadable at the top of this post.
+
+    The package contains the following modules:
+
+    | Module | Description |
+    |---|:---|
+    | [`config`](source:tetris/config.py) | Implements `AtomsConfiguration` class: generates a loading, packs it into tetriminoes, and renders it. Mostly pedagogical / proof of concept, not computationally optimal. |
+    | [`fast`](source:tetris/fast.py) | The same acceptance rule and displacement count, rewritten to cost constant time per row so the benchmark can afford a large amount of configurations. |
+    | [`benchmark`](source:tetris/benchmark.py) | The parallel driver: seeds each worker independently, shuffles task order, measures CPU time. |
+    | [`cache`](source:tetris/cache.py) | On-disk cache for a benchmark run, fingerprinted against its parameters and the algorithm source so a stale result is never served silently. |
+    | [`stats`](source:tetris/stats.py) | [Wilson score intervals](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Wilson_score_interval) for the measured success rates. |
+    | [`display`](source:tetris/display.py) | Rich rendering of a tetrimino construction, row by row, for the verbose demo displayed in the terminal standard output. |
+    | [`plotting`](source:tetris/plotting.py) | Matplotlib rendering of a loading array and its tetrimino-packed counterpart. |
     """)
     return
 
@@ -58,6 +161,7 @@ def imports():
     # loading dependencies
 
     # built-in
+    import inspect
     import os
     from math import sqrt
     from pathlib import Path
@@ -66,10 +170,17 @@ def imports():
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
+    from matplotlib.colors import LinearSegmentedColormap
 
     # this notebook's own package
-    from tetris import AtomsConfiguration
+    from tetris import (
+        AtomsConfiguration,
+        configuration_kept,
+        parallel_displacements,
+        target_geometry,
+    )
     from tetris.benchmark import (
+        build_tasks,
         run_displacement_benchmark,
         run_success_rate_benchmark,
     )
@@ -83,18 +194,32 @@ def imports():
     return (
         AtomsConfiguration,
         BenchmarkParameters,
+        LinearSegmentedColormap,
         Path,
         algorithm_digest,
+        build_tasks,
+        configuration_kept,
+        inspect,
         load_results,
         mo,
         np,
         os,
+        parallel_displacements,
         plt,
         run_displacement_benchmark,
         run_success_rate_benchmark,
         save_results,
         sqrt,
+        target_geometry,
     )
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Then we declare a few useful static parameters that will be useful in the rest of the notebook.
+    """)
+    return
 
 
 @app.cell
@@ -149,36 +274,14 @@ def notebook_constants(Path, os):
     )
 
 
-@app.cell(hide_code=True)
-def atoms_configuration_docs(mo):
-    mo.md(r"""
-    The algorithm lives in the `tetris` package next to this notebook, rather than in a cell, so that it can be imported by the benchmark workers and covered by tests. `AtomsConfiguration` is in charge of:
-
-    1. Generating a random occupation matrix (probability half for each loading site) – or alternatively loading a manually chosen one.
-    2. Simulating the tetris algorithm execution flow on the generated occupation matrix. This is achieved by the `construct_tetriminoes` method which creates several attributes: `tetriminoes_matrix` (the matrix with atoms horizontally compactified), `tetriminoes_motions` (the list of motions to realize so as to prepare the tetrominoes matrix, starting from the loaded matrix).
-    3. A `configuration_kept` attribute is also created after the execution of `construct_tetriminoes`, to know if a loaded configuration should be discarded before starting the vertical stacking of the atoms. This happens if – after `construct_tetriminoes` execution – at least one column of the loading array does not contain enough atoms to fill the corresponding column of the target array.
-    4. Counting the parallel displacements the rearrangement costs, with `count_parallel_displacements`.
-    5. Plotting the loaded and tetriminoes configurations, with the `plot_configuration` method.
-
-    A row is packed by dealing its atoms round the target window from a running shift. For a uniform square target that is the same assignment as the rule stated in [[1]](https://doi.org/10.1103/PhysRevApplied.19.054032), which always serves the columns that are furthest behind, and the two agree on every configuration the test suite throws at them.
-    """)
-    return
-@app.cell(hide_code=True)
-def testing_class_intro(mo):
-    mo.md(r"""
-    ### Testing the class
-
-    Let's generate a randomly loaded matrix, visualize it and execute the tetris algorithm on it.
-    """)
-    return
-
-
 @app.cell
 def demo_random_configuration(
     AtomsConfiguration,
     DEFAULT_LOADING_ARRAY_SIZE: int,
 ):
-    atoms_config = AtomsConfiguration(DEFAULT_LOADING_ARRAY_SIZE)
+    atoms_config = AtomsConfiguration(
+        loading_array_size=DEFAULT_LOADING_ARRAY_SIZE
+    )
     atoms_config.plot_configuration()
     return (atoms_config,)
 
@@ -204,10 +307,10 @@ def large_array_intro(mo):
 
 
 @app.cell
-def large_array_demo(AtomsConfiguration):
-    array = AtomsConfiguration(loading_array_size=200)
-    array.construct_tetriminoes()
-    array.plot_configuration(which="all")
+def demo_large_array(AtomsConfiguration):
+    atoms_config_large = AtomsConfiguration(loading_array_size=200)
+    atoms_config_large.construct_tetriminoes()
+    atoms_config_large.plot_configuration(which="all")
     return
 
 
@@ -224,8 +327,20 @@ def benchmarking_intro(mo):
     \[
         \ell_{\text{margin}} = \ell_{\text{no margin}} - 1 = \lfloor L / \sqrt{2} \rfloor - 1
     \]
-    The margin variant is the one matching [[1]](https://doi.org/10.1103/PhysRevApplied.19.054032), whose simulations start from a $\lceil \sqrt{2}\ell + 1 \rceil$ square reservoir for an $\ell \times \ell$ target.
+    The margin variant is the one matching [[1]](https://doi.org/10.1103/PhysRevApplied.19.054032), whose simulations start from a $\lceil \sqrt{2}\ell + 1 \rceil$ square reservoir for an $\ell \times \ell$ target. Both variants come out of one function, which also centres the window in the loading array once the side is settled:
+    """)
+    return
 
+
+@app.cell(hide_code=True)
+def quote_target_geometry(quote, target_geometry):
+    quote(target_geometry)
+    return
+
+
+@app.cell(hide_code=True)
+def benchmarking_method(mo):
+    mo.md(r"""
     ### Computation
 
     We take $L \in [4, 100]$, and $\ell$ with and without security margin. Each $(L, \ell)$ configuration gets its own worker, its own random stream and a 60 s wall clock budget. Three details matter for what comes out of it.
@@ -235,19 +350,41 @@ def benchmarking_intro(mo):
     Tasks are drawn from a single queue in shuffled order. Running them in size order lets any drift over the half hour the sweep takes – a laptop heating up, for instance – arrive as a trend against $L$.
 
     The cost of a configuration is measured from each worker's own CPU time, not from the 60 s budget. Workers do not all get the same share of the machine: a task that happens to run when few others do gets a physical core to itself and completes far more runs, which under the old accounting read as a faster algorithm.
+
+    Seeding and ordering are one function, which hands every task its own stream and then puts the queue out of size order:
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def quote_build_tasks(build_tasks, quote):
+    quote(build_tasks)
+    return
+
+
+@app.cell(hide_code=True)
+def fast_acceptance_intro(mo):
+    mo.md(r"""
+    One more thing keeps the whole sweep down to half an hour. [`AtomsConfiguration`](source:tetris/config.py#AtomsConfiguration) builds an occupation matrix, a per-row motion table and a Rich rendering path for every configuration it examines; the sweep examines millions of them and needs a single boolean out of each. So the acceptance rule is implemented a second time, directly over the row sums, accumulating the occupancy of the target columns as a difference array. That costs a constant per row instead of a pass over the target width, and measures about fifty times faster at $L = 100$. A test holds the two versions equal over several thousand configurations in both margin variants.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def quote_configuration_kept(configuration_kept, quote):
+    quote(configuration_kept)
     return
 
 
 @app.cell
 def benchmark_rejection_rate(
-    ALGORITHM_SOURCES,
-    BENCHMARK_STATS_PATH,
+    ALGORITHM_SOURCES: "tuple[Path, ...]",
+    BENCHMARK_STATS_PATH: "Path",
     BenchmarkParameters,
-    LOADING_ARRAY_SIZES,
-    MARGIN_VARIANTS,
-    N_WORKERS,
-    SECONDS_PER_TASK,
+    LOADING_ARRAY_SIZES: tuple[int, ...],
+    MARGIN_VARIANTS: tuple[bool, ...],
+    N_WORKERS: int,
+    SECONDS_PER_TASK: float,
     algorithm_digest,
     load_results,
     np,
@@ -261,13 +398,13 @@ def benchmark_rejection_rate(
         workers=N_WORKERS,
         algorithm_digest=algorithm_digest(*ALGORITHM_SOURCES),
     )
-    stats, _reason = load_results(
+    success_rate_stats, _reason = load_results(
         BENCHMARK_STATS_PATH, success_rate_parameters
     )
-    if stats is None:
+    if success_rate_stats is None:
         print(f"running the sweep, {_reason}")
         _entropy = np.random.SeedSequence().entropy
-        stats = run_success_rate_benchmark(
+        success_rate_stats = run_success_rate_benchmark(
             sizes=LOADING_ARRAY_SIZES,
             margin_variants=MARGIN_VARIANTS,
             seconds_per_task=SECONDS_PER_TASK,
@@ -278,13 +415,13 @@ def benchmark_rejection_rate(
             BENCHMARK_STATS_PATH,
             success_rate_parameters,
             _entropy,
-            stats,
+            success_rate_stats,
         )
-    return (stats,)
+    return (success_rate_stats,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def plotting_results_intro(mo):
     mo.md(r"""
     ### Plotting the results
     """)
@@ -292,36 +429,51 @@ def _(mo):
 
 
 @app.cell
-def _(np, stats):
+def sizes_from_stats(np, success_rate_stats):
     # arrays reused by several of the plotting cells below
-    sizes_arr = np.array(sorted(stats.keys()))
+    sizes_arr = np.array(sorted(success_rate_stats.keys()))
     return (sizes_arr,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def success_rate_plot_intro(mo):
     mo.md(r"""
     #### Success rate
 
-    We can start by brutally plotting the raw results, separating the cases with and without the security margin. The bars are Wilson score intervals at one standard deviation. They are small, since each point rests on thousands to hundreds of thousands of runs, and they are asymmetric near a rate of one, where a symmetric bar would reach past one.
+    We can start by brutally plotting the raw results, separating the cases with and without the security margin. The bars are [Wilson score intervals](source:tetris/stats.py#wilson_interval) at one standard deviation. They are small, since each point rests on thousands to hundreds of thousands of runs, and they are asymmetric near a rate of one, where a symmetric bar would reach past one.
     """)
     return
 
 
 @app.cell
-def success_rate_plot(VARIANT_STYLES, np, plt, sizes_arr, stats):
+def success_rate_plot(
+    VARIANT_STYLES: tuple[tuple[str, str, str], ...],
+    np,
+    plt,
+    sizes_arr,
+    success_rate_stats,
+):
     fig_success_rate, (ax_success_full, ax_success_zoom) = plt.subplots(
         2, 1, figsize=(10, 7), sharex=True
     )
     for _variant, _label, _marker in VARIANT_STYLES:
         _rates = np.array(
-            [stats[_size][_variant]["success_rate"] for _size in sizes_arr]
+            [
+                success_rate_stats[_size][_variant]["success_rate"]
+                for _size in sizes_arr
+            ]
         )
         _errors = np.vstack(
             [
                 _rates
-                - [stats[_s][_variant]["wilson_low"] for _s in sizes_arr],
-                [stats[_s][_variant]["wilson_high"] for _s in sizes_arr]
+                - [
+                    success_rate_stats[_s][_variant]["wilson_low"]
+                    for _s in sizes_arr
+                ],
+                [
+                    success_rate_stats[_s][_variant]["wilson_high"]
+                    for _s in sizes_arr
+                ]
                 - _rates,
             ]
         )
@@ -353,7 +505,7 @@ def success_rate_plot(VARIANT_STYLES, np, plt, sizes_arr, stats):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def success_rate_no_margin_note(mo):
     mo.md(r"""
     Without security margin, the success rate of the procedure can be really bad, and it exhibits structure that comes from the truncation happening when the loading size is converted into the target size: $\ell$ is a floor, so the contraction ratio $(\ell/L)^2$ jumps around as $L$ grows rather than settling on $1/2$. Plotting against that ratio instead of against $L$ collapses most of it.
     """)
@@ -361,17 +513,22 @@ def _(mo):
 
 
 @app.cell
-def success_rate_vs_contraction_ratio_plot(VARIANT_STYLES, np, plt, stats):
+def success_rate_vs_contraction_ratio_plot(
+    VARIANT_STYLES: tuple[tuple[str, str, str], ...],
+    np,
+    plt,
+    success_rate_stats,
+):
     fig_success_vs_ratio, ax_success_vs_ratio = plt.subplots(figsize=(10, 4))
     for _variant, _label, _marker in VARIANT_STYLES:
         _entries = sorted(
             (
-                stats[_size][_variant]["contraction_ratio"],
-                stats[_size][_variant]["success_rate"],
-                stats[_size][_variant]["wilson_low"],
-                stats[_size][_variant]["wilson_high"],
+                success_rate_stats[_size][_variant]["contraction_ratio"],
+                success_rate_stats[_size][_variant]["success_rate"],
+                success_rate_stats[_size][_variant]["wilson_low"],
+                success_rate_stats[_size][_variant]["wilson_high"],
             )
-            for _size in stats
+            for _size in success_rate_stats
         )
         _ratios, _rates, _low, _high = (
             np.array(_column) for _column in zip(*_entries)
@@ -396,11 +553,16 @@ def success_rate_vs_contraction_ratio_plot(VARIANT_STYLES, np, plt, stats):
 
 
 @app.cell
-def success_rate_heatmap(VARIANT_STYLES, np, plt, stats):
+def success_rate_heatmap_plot(
+    LinearSegmentedColormap,
+    VARIANT_STYLES: tuple[tuple[str, str, str], ...],
+    np,
+    plt,
+    success_rate_stats,
+):
     # (loading array size, contraction ratio) isn't a regular grid — each
     # size only has two ratios (no_margin/with_margin) — so a scatter
     # colored by success rate stands in for an imshow-style heatmap
-    from matplotlib.colors import LinearSegmentedColormap
 
     _cmap = LinearSegmentedColormap.from_list(
         "purple_to_green", ["tab:purple", "tab:red", "tab:green"]
@@ -409,11 +571,16 @@ def success_rate_heatmap(VARIANT_STYLES, np, plt, stats):
 
     def _column(key):
         return np.array(
-            [stats[_size][_variant][key] for _size in stats
-             for _variant in _variants]
+            [
+                success_rate_stats[_size][_variant][key]
+                for _size in success_rate_stats
+                for _variant in _variants
+            ]
         )
 
-    _sizes = np.array([_size for _size in stats for _ in _variants])
+    _sizes = np.array(
+        [_size for _size in success_rate_stats for _ in _variants]
+    )
     _ratios = _column("contraction_ratio")
     _rates = _column("success_rate")
     # relative precision of each point, which unlike the spread of the
@@ -446,14 +613,16 @@ def success_rate_heatmap(VARIANT_STYLES, np, plt, stats):
     fig_heatmap.tight_layout()
     fig_heatmap
     return
+
+
 @app.cell(hide_code=True)
-def _(mo):
+def cost_plot_intro(mo):
     mo.md(r"""
     #### Cost of a configuration
 
-    Everything above is Python and not heavily optimized, so this says more about the implementation than about the algorithm. It is worth looking at anyway, if only to see how little of it is the algorithm.
+    Everything above is Python and not heavily optimised, so this says more about the implementation than about the algorithm. It is worth looking at anyway, if only to see how little of it is the algorithm.
 
-    The cost is the CPU time a worker spent, divided by the number of configurations it examined. Below $L \approx 30$ it barely moves: a row costs a fixed handful of NumPy calls whatever its length, and that overhead swamps the work. The fit is therefore restricted to the large end, where the per-site work has taken over. Even there the exponent stays close to 1 rather than the 2 the $L^2$ sites would suggest, so the overhead never really lets go over this range.
+    The cost is the [CPU time a worker spent](source:tetris/benchmark.py#_success_rate_worker), divided by the number of configurations it examined. Below $L \approx 30$ it barely moves: a row costs a fixed handful of NumPy calls whatever its length, and that overhead swamps the work. The fit is therefore restricted to the large end, where the per-site work has taken over. Even there the exponent stays close to 1 rather than the 2 the $L^2$ sites would suggest, so the overhead never really lets go over this range.
 
     Individual points scatter by a few tens of percent. CPU time removes the effect of a worker being descheduled, but not the effect of sharing a physical core with another worker: two threads on one core each retire fewer instructions per second, and the time still counts. Shuffling the task order turns that into noise rather than a trend against $L$, which is the most that can be done without a serial timing pass.
     """)
@@ -461,17 +630,23 @@ def _(mo):
 
 
 @app.cell
-def computation_cost_plot(VARIANT_STYLES, np, plt, sizes_arr, stats):
+def computation_cost_plot(
+    VARIANT_STYLES: tuple[tuple[str, str, str], ...],
+    np,
+    plt,
+    sizes_arr,
+    success_rate_stats,
+):
     FIT_FROM = 30
 
-    fig_cost, (ax_cost, ax_cost_per_row) = plt.subplots(
-        1, 2, figsize=(11, 4)
-    )
+    fig_cost, (ax_cost, ax_cost_per_row) = plt.subplots(1, 2, figsize=(11, 4))
     _fit_sizes, _fit_costs = [], []
     for _variant, _label, _marker in VARIANT_STYLES:
         _costs = np.array(
             [
-                stats[_size][_variant]["microseconds_per_configuration"]
+                success_rate_stats[_size][_variant][
+                    "microseconds_per_configuration"
+                ]
                 for _size in sizes_arr
             ]
         )
@@ -500,7 +675,7 @@ def computation_cost_plot(VARIANT_STYLES, np, plt, sizes_arr, stats):
         ax_cost.loglog(
             _fit_range,
             np.exp(_intercept) * _fit_range**_slope,
-            "k--",
+            "--",
             label=(
                 rf"$L^{{{_slope:.2f}({np.sqrt(_covariance[0, 0]):.2f})}}$"
                 rf", fitted from $L={FIT_FROM}$"
@@ -525,27 +700,33 @@ def computation_cost_plot(VARIANT_STYLES, np, plt, sizes_arr, stats):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def rearrangement_cost_intro(mo):
     mo.md(r"""
     #### Rearrangement cost
 
     Computation time is not what [[1]](https://doi.org/10.1103/PhysRevApplied.19.054032) reports, and it is not what dominates an experimental cycle either: moving atoms takes milliseconds, deciding where to move them takes microseconds. The quantity the paper fits is the number of *parallel displacements*, the sum over moves of the largest single-atom displacement in each, since all the atoms of a row travel at once. There are about $L$ row moves and $\ell$ column moves, so the count scales at most as $L^2 \propto N$.
 
-    Their Monte Carlo gives $N^{1.03(7)}$ for the compact geometry with the Tetris algorithm, against $N^{1.6(1)}$ for the Hungarian algorithm, which is the strict optimum without parallel moves and is the number this notebook previously compared itself against by mistake. $N$ is the number of atoms in the target array, $\ell^2$, not the linear size.
+    Their Monte Carlo gives $N^{1.03(7)}$ for the compact geometry with the Tetris algorithm, against $N^{1.6(1)}$ for the Hungarian algorithm, which is the strict optimum without parallel moves. $N$ is the number of atoms in the target array, $\ell^2$, not the linear size.
 
-    Each point below averages 10000 accepted configurations, a fixed count rather than a fixed time, matching the paper.
+    Each point below averages 10000 accepted configurations, a fixed count rather than a fixed time, matching the paper. Counting the displacements is one pass over the rows and then one over the target columns:
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def quote_parallel_displacements(parallel_displacements, quote):
+    quote(parallel_displacements)
     return
 
 
 @app.cell
 def benchmark_displacements(
-    ALGORITHM_SOURCES,
+    ALGORITHM_SOURCES: "tuple[Path, ...]",
     BenchmarkParameters,
-    DISPLACEMENT_SAMPLES,
-    DISPLACEMENT_SIZES,
-    DISPLACEMENT_STATS_PATH,
-    N_WORKERS,
+    DISPLACEMENT_SAMPLES: int,
+    DISPLACEMENT_SIZES: tuple[int, ...],
+    DISPLACEMENT_STATS_PATH: "Path",
+    N_WORKERS: int,
     algorithm_digest,
     load_results,
     np,
@@ -622,11 +803,12 @@ def displacement_plot(displacements, np, plt):
         ax_displacements.plot(
             _atoms,
             np.exp(_intercept) * _atoms**_slope,
-            "k--",
             label=(
                 rf"Fit: "
                 rf"$N^{{{_slope:.2f}({np.sqrt(_covariance[0, 0]):.2f})}}$"
             ),
+            color="tab:red",
+            linestyle="--",
         )
     for _exponent, _label, _style in (
         (PAPER_TETRIS_EXPONENT, "Paper, Tetris: $N^{1.03(7)}$", "-"),
@@ -637,7 +819,6 @@ def displacement_plot(displacements, np, plt):
             _atoms,
             _means[0] * (_atoms / _atoms[0]) ** _exponent,
             _style,
-            alpha=0.6,
             label=_label,
         )
 
@@ -655,21 +836,21 @@ def displacement_plot(displacements, np, plt):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def floor_effect_intro(mo):
     mo.md(r"""
     #### Where the structure in the no-margin curve comes from
 
-    The target side is a floor, so as $L$ grows the fractional part of $L/\sqrt{2}$ sweeps through $[0, 1)$ and the contraction ratio $(\ell/L)^2$ oscillates around $1/2$ instead of sitting on it. When the fractional part is small, $\ell$ is close to $L/\sqrt{2}$ and the target asks for about as many atoms as the loading provides, which is exactly when the rejection rate is worst.
+    The target side is a [floor](source:tetris/fast.py#target_geometry), so as $L$ grows the fractional part of $L/\sqrt{2}$ sweeps through $[0, 1)$ and the contraction ratio $(\ell/L)^2$ oscillates around $1/2$ instead of sitting on it. When the fractional part is small, $\ell$ is close to $L/\sqrt{2}$ and the target asks for about as many atoms as the loading provides, which is exactly when the rejection rate is worst.
     """)
     return
+
+
 @app.cell
 def floor_effect_plot(np, plt, sqrt):
     _sizes = np.arange(4, 101, 1)
     _target_sizes = np.floor(_sizes / sqrt(2))
 
-    fig_floor, (ax_fractional, ax_ratio) = plt.subplots(
-        1, 2, figsize=(11, 4)
-    )
+    fig_floor, (ax_fractional, ax_ratio) = plt.subplots(1, 2, figsize=(11, 4))
     ax_fractional.plot(_sizes, _sizes / sqrt(2) - _target_sizes, marker=".")
     ax_fractional.set_xlabel("Loading array size $L$")
     ax_fractional.set_ylabel(r"$L/\sqrt{2} - \ell$")
@@ -687,6 +868,8 @@ def floor_effect_plot(np, plt, sqrt):
     fig_floor.tight_layout()
     fig_floor
     return
+
+
 @app.cell(hide_code=True)
 def references(mo):
     mo.md(r"""
