@@ -163,7 +163,7 @@ def imports():
     # built-in
     import inspect
     import os
-    from math import sqrt
+    from math import isqrt, sqrt
     from pathlib import Path
 
     # third-party
@@ -178,6 +178,13 @@ def imports():
         configuration_kept,
         parallel_displacements,
         target_geometry,
+    )
+    from tetris.analytic import (
+        enough_atoms_probability,
+        expected_wasted_atoms,
+        expected_wasted_atoms_per_row,
+        overfull_row_probability,
+        salvageable_share,
     )
     from tetris.benchmark import (
         build_tasks,
@@ -199,15 +206,21 @@ def imports():
         algorithm_digest,
         build_tasks,
         configuration_kept,
+        enough_atoms_probability,
+        expected_wasted_atoms,
+        expected_wasted_atoms_per_row,
         inspect,
+        isqrt,
         load_results,
         mo,
         np,
         os,
+        overfull_row_probability,
         parallel_displacements,
         plt,
         run_displacement_benchmark,
         run_success_rate_benchmark,
+        salvageable_share,
         save_results,
         sqrt,
         target_geometry,
@@ -612,6 +625,213 @@ def success_rate_heatmap_plot(
 
     fig_heatmap.tight_layout()
     fig_heatmap
+    return
+
+
+@app.cell(hide_code=True)
+def wasted_atoms_intro(mo):
+    mo.md(r"""
+    #### Atoms nobody can use
+
+    A row hands at most one atom to each target column, so a row that arrives carrying more atoms than the target is wide cannot place all of them. The surplus stays where it lies, outside the window, and takes no further part. How much is left behind that way is a question about the loading rather than about the algorithm, and it has an answer in closed form.
+
+    The number of atoms in a row is $K \sim \mathrm{Bin}(L, 1/2)$, and the surplus is $(K - \ell)^+$. Splitting the expectation at the threshold turns the sum over the tail into two tails,
+    \[
+        \mathbb{E}\left[(K-\ell)^+\right]
+        = \frac{L}{2}\, P\!\left(\mathrm{Bin}(L-1, 1/2) \geq \ell\right)
+        - \ell\, P\!\left(K > \ell\right),
+    \]
+    and the whole configuration wastes $L$ times that. Nothing has to be sampled:
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def quote_expected_wasted_atoms(expected_wasted_atoms_per_row, quote):
+    quote(expected_wasted_atoms_per_row)
+    return
+
+
+@app.cell
+def wasted_atoms_plot(
+    VARIANT_STYLES: tuple[tuple[str, str, str], ...],
+    expected_wasted_atoms,
+    isqrt,
+    np,
+    overfull_row_probability,
+    plt,
+    sizes_arr,
+    success_rate_stats,
+):
+    fig_waste, (ax_waste, ax_overfull) = plt.subplots(1, 2, figsize=(11, 4))
+    for _variant, _label, _marker in VARIANT_STYLES:
+        # the target is square here, so its width comes back out of the
+        # atom count the benchmark recorded
+        _columns = [
+            isqrt(success_rate_stats[_size][_variant]["target_number_of_atoms"])
+            for _size in sizes_arr
+        ]
+        ax_waste.semilogy(
+            sizes_arr,
+            [
+                expected_wasted_atoms(int(_size), _width)
+                for _size, _width in zip(sizes_arr, _columns)
+            ],
+            _marker,
+            markersize=4,
+            alpha=0.75,
+            label=_label,
+        )
+        ax_overfull.semilogy(
+            sizes_arr,
+            [
+                overfull_row_probability(int(_size), _width)
+                for _size, _width in zip(sizes_arr, _columns)
+            ],
+            _marker,
+            markersize=4,
+            alpha=0.75,
+            label=_label,
+        )
+
+    ax_waste.set_xlabel("Loading array size $L$")
+    ax_waste.set_ylabel("Atoms left behind")
+    ax_waste.set_title("Wasted atoms per configuration")
+    ax_waste.grid(alpha=0.3, which="both")
+    ax_waste.legend()
+
+    ax_overfull.set_xlabel("Loading array size $L$")
+    ax_overfull.set_ylabel(r"$P(K > \ell)$")
+    ax_overfull.set_title("Chance that one row overflows the target width")
+    ax_overfull.grid(alpha=0.3, which="both")
+    ax_overfull.legend()
+
+    fig_waste.tight_layout()
+    fig_waste
+    return
+
+
+@app.cell(hide_code=True)
+def wasted_atoms_note(mo):
+    mo.md(r"""
+    Waste is a small-array effect and it dies quickly. A row holds $L/2$ atoms on average and the target is $\ell \approx L/\sqrt{2}$ wide, so overflowing means a row landing about $0.41\sqrt{L}$ standard deviations above its mean. Taking the margin variant, that is an ordinary fluctuation at $L = 8$, where better than a third of the rows overflow and a configuration leaves 4.4 atoms behind, and a large deviation at $L = 100$, where it happens to one row in twenty-five thousand and a whole configuration wastes 0.007 atoms.
+
+    So the surplus is not what limits the algorithm at any size worth running. It is worth knowing anyway, because it is the reason a loaded atom is not the same thing as a usable atom, and the next question turns on exactly that difference.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def atom_count_bound_intro(mo):
+    mo.md(r"""
+    #### How many rejections were the algorithm's fault?
+
+    A discarded configuration is one where some target column came up short. That could mean the loading was genuinely too sparse, or it could mean the packing put the atoms in the wrong columns and a cleverer assignment would have saved it. Those are very different failures and the success rate alone does not tell them apart.
+
+    One bound separates them. Filling $N = \ell^2$ target sites needs $N$ atoms, wherever they start and however they move, so every configuration the algorithm keeps holds at least $N$ atoms. The two events nest, which makes the share of rejections that had enough atoms a difference of two numbers already in hand:
+    \[
+        P\!\left(\text{enough atoms} \mid \text{rejected}\right)
+        = \frac{P(\text{enough atoms}) - r}{1 - r},
+    \]
+    with $r$ the measured success rate and $P(\text{enough atoms})$ a binomial tail over the $L^2$ loading sites. An assembler free to move any atom anywhere would keep exactly those; a row-then-column scheme is more constrained, so this is an upper bound on what any repacking could recover.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def quote_salvageable_share(quote, salvageable_share):
+    quote(salvageable_share)
+    return
+
+
+@app.cell
+def atom_count_bound_plot(
+    VARIANT_STYLES: tuple[tuple[str, str, str], ...],
+    enough_atoms_probability,
+    np,
+    plt,
+    salvageable_share,
+    sizes_arr,
+    success_rate_stats,
+):
+    # below this many observed rejections the share is a ratio of two
+    # tiny counts and says nothing; with the margin that silences most
+    # of the range, which is itself the point
+    MIN_REJECTIONS = 100
+
+    fig_bound, (ax_bound, ax_salvage) = plt.subplots(1, 2, figsize=(11, 4))
+    for _variant, _label, _marker in VARIANT_STYLES:
+        _entries = [success_rate_stats[_size][_variant] for _size in sizes_arr]
+        _rates = np.array([_entry["success_rate"] for _entry in _entries])
+        _bounds = np.array(
+            [
+                enough_atoms_probability(
+                    int(_size), _entry["target_number_of_atoms"]
+                )
+                for _size, _entry in zip(sizes_arr, _entries)
+            ]
+        )
+        _drawn = ax_bound.semilogy(
+            sizes_arr,
+            1 - _rates,
+            _marker,
+            markersize=4,
+            alpha=0.75,
+            label=f"{_label}, measured",
+        )
+        ax_bound.semilogy(
+            sizes_arr,
+            1 - _bounds,
+            "-",
+            color=_drawn[0].get_color(),
+            alpha=0.9,
+            label=f"{_label}, atom-count bound",
+        )
+
+        _enough = np.array(
+            [_entry["samples"] - _entry["kept"] >= MIN_REJECTIONS for _entry in _entries]
+        )
+        ax_salvage.plot(
+            sizes_arr[_enough],
+            [
+                100 * salvageable_share(_rate, _bound)
+                for _rate, _bound in zip(_rates[_enough], _bounds[_enough])
+            ],
+            _marker,
+            markersize=4,
+            alpha=0.75,
+            label=_label,
+        )
+
+    ax_bound.set_xlabel("Loading array size $L$")
+    ax_bound.set_ylabel("Rejection probability")
+    ax_bound.set_title("Rejections, measured against the bound")
+    ax_bound.grid(alpha=0.3, which="both")
+    ax_bound.legend(fontsize=8)
+
+    ax_salvage.set_xlabel("Loading array size $L$")
+    ax_salvage.set_ylabel("Salvageable rejections (%)")
+    ax_salvage.set_title(
+        f"Rejections that held enough atoms\n(sizes with at least "
+        f"{MIN_REJECTIONS} observed rejections)"
+    )
+    ax_salvage.grid(alpha=0.3)
+    ax_salvage.legend()
+
+    fig_bound.tight_layout()
+    fig_bound
+    return
+
+
+@app.cell(hide_code=True)
+def atom_count_bound_note(mo):
+    mo.md(r"""
+    The measured curve sits on the bound and stays there. Without the margin the gap is worth 9.4 % of the rejections at $L = 10$, 4.4 % at $L = 20$, 0.9 % at $L = 50$, and nothing measurable by $L = 100$: the deep dips in the success rate are the loading failing to supply $\ell^2$ atoms, not the packing misplacing them. With the margin there are too few rejections at most sizes to form the ratio at all, which is why the right-hand panel thins out.
+
+    Two things follow. The round-robin deal is not leaving much on the table, so the effort of the sorted-minimum assignment would buy very little for a uniform square target. And the way to raise the success rate is to ask for fewer target sites or to load more atoms, which is what the margin does and what the [enhanced loading schemes](https://doi.org/10.1103/PhysRevX.9.011057) that push the filling fraction past one half do.
+
+    The bound is also a check on the benchmark. Nothing measured may exceed it, and over the 194 points here the measured rate sits a median 0.59 standard errors below its own bound, with the largest excursion above at 2.11 standard errors and none past three.
+    """)
     return
 
 
