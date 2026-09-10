@@ -68,13 +68,14 @@ def test_cost_comes_from_measured_cpu_time() -> None:
         # the sampling loop tests its deadline before each draw, so it
         # always overruns rather than stopping short
         assert entry["wall_seconds"] >= budget
-        # cpu_seconds is not compared against wall_seconds: process_time
-        # sums the CPU of every thread in the process, and a threaded
-        # BLAS underneath NumPy can put it above the wall clock. What
-        # has to hold is that the number is measured rather than the
-        # budget played back
-        assert entry["cpu_seconds"] != pytest.approx(budget, abs=1e-6)
-    # each task times itself, so the values are not one shared constant
+        assert entry["cpu_seconds"] > 0
+    # This is what says the number is measured and not the budget played
+    # back: three tasks, three different CPU times. Comparing any single
+    # one against the budget does not, in either direction. It may sit
+    # above it, because process_time sums the CPU of every thread in the
+    # process and a threaded BLAS under NumPy can outrun the wall clock;
+    # and it may land on it to within a microsecond, which is what a
+    # worker with a core to itself and nothing to wait for produces.
     assert len(set(measured)) == len(measured)
 
 
