@@ -10,7 +10,7 @@ from tetris.cache import BenchmarkParameters, load_results, save_results
 def parameters(**overrides) -> BenchmarkParameters:
     defaults = {
         "sizes": (4, 5, 6),
-        "margin_variants": (False, True),
+        "reshape_variants": ((0, 0), (0, -1), (-1, -1)),
         "seconds_per_task": 60.0,
         "workers": 7,
         "algorithm_digest": "abc123",
@@ -21,10 +21,10 @@ def parameters(**overrides) -> BenchmarkParameters:
 def test_round_trip(tmp_path) -> None:
     path = tmp_path / "stats.json"
     params = parameters()
-    save_results(path, params, entropy=999, results={4: {"no_margin": 1.0}})
+    save_results(path, params, entropy=999, results={4: {"r0c0": 1.0}})
     results, reason = load_results(path, params)
     assert reason == ""
-    assert results == {4: {"no_margin": 1.0}}
+    assert results == {4: {"r0c0": 1.0}}
 
 
 def test_missing_file_is_not_an_error(tmp_path) -> None:
@@ -37,7 +37,7 @@ def test_missing_file_is_not_an_error(tmp_path) -> None:
     "override",
     [
         {"sizes": (4, 5, 6, 7)},
-        {"margin_variants": (True,)},
+        {"reshape_variants": ((-1, -1),)},
         {"seconds_per_task": 30.0},
         {"algorithm_digest": "deadbeef"},
         {"samples_per_task": 10_000},
@@ -74,6 +74,19 @@ def test_entropy_is_recorded(tmp_path) -> None:
     meta = json.loads(path.read_text())["meta"]
     assert meta["seed_entropy"] == 4242
     assert "cpu_count" in meta
+
+
+def test_reshape_variants_survive_the_json_round_trip(tmp_path) -> None:
+    """A reshape is a tuple going in and a list coming back, so the
+    fingerprint has to be computed over a form that does not depend on
+    which side of the file it is read from."""
+    path = tmp_path / "stats.json"
+    params = parameters()
+    save_results(path, params, entropy=1, results={4: {}})
+    meta = json.loads(path.read_text())["meta"]
+    assert meta["reshape_variants"] == [[0, 0], [0, -1], [-1, -1]]
+    results, reason = load_results(path, params)
+    assert results is not None, reason
 
 
 def test_cpu_model_is_readable() -> None:

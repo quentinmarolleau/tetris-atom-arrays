@@ -10,6 +10,7 @@ from matplotlib import pyplot as plt
 
 from tetris import AtomsConfiguration
 from tetris.display import format_motions, format_row
+from tetris.fast import TargetWindow
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +21,9 @@ def close_figures():
 
 def test_format_row_marks_the_target_region() -> None:
     row = np.array([True, False, True, False, True, False])
-    rendered = format_row(row, target_start=2, target_size=2)
+    rendered = format_row(
+        row, TargetWindow(rows=2, columns=2, row_start=2, column_start=2)
+    )
     assert rendered.count("[bold cyan]|[/bold cyan]") == 2
     assert "[green]●[/green]" in rendered
     assert "[yellow]●[/yellow]" in rendered
@@ -41,6 +44,7 @@ def test_verbose_construction_runs(capsys) -> None:
     config.construct_tetriminoes(verbose=True)
     printed = capsys.readouterr().out
     assert "Loading array size" in printed
+    assert "Target shape" in printed
     assert "Configuration kept" in printed
     # Rich splits the rule title across style spans, so the
     # label and its index are not one substring
@@ -50,7 +54,7 @@ def test_verbose_construction_runs(capsys) -> None:
 
 def test_verbose_construction_reports_deficient_columns(capsys) -> None:
     config = AtomsConfiguration(
-        occupation_matrix=np.zeros((8, 8), dtype=bool), margin=False
+        occupation_matrix=np.zeros((8, 8), dtype=bool)
     )
     config.construct_tetriminoes(verbose=True)
     assert "Deficient columns" in capsys.readouterr().out
@@ -67,6 +71,26 @@ def test_plot_configuration_produces_a_figure(which: str) -> None:
     for ax in figure.axes:
         assert ax.get_title()
     assert config.tetriminoes_matrix is not None or which == "loading"
+
+
+def test_a_rectangular_target_is_drawn_as_a_rectangle() -> None:
+    config = AtomsConfiguration(
+        loading_array_size=18,
+        target_shape=(8, 12),
+        rng=np.random.default_rng(6),
+    )
+    figure = config.plot_configuration(which="all")
+    for ax in figure.axes:
+        rectangle = next(
+            patch
+            for patch in ax.patches
+            if patch.__class__.__name__ == "Rectangle"
+        )
+        assert (rectangle.get_height(), rectangle.get_width()) == (8, 12)
+        assert rectangle.get_xy() == (
+            config.window.column_start - 0.5,
+            config.window.row_start - 0.5,
+        )
 
 
 def test_plot_ticks_stay_readable_for_a_large_array() -> None:

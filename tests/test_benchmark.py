@@ -9,22 +9,27 @@ from tetris.benchmark import (
 )
 
 SIZES = (6, 9, 12)
-VARIANTS = (False, True)
+VARIANTS = ((0, 0), (0, -1), (-1, -1))
+KEYS = {"r0c0", "r0c-1", "r-1c-1"}
 
 
 def test_tasks_cover_every_combination() -> None:
     tasks = build_tasks(SIZES, VARIANTS, entropy=1)
     assert len(tasks) == len(SIZES) * len(VARIANTS)
-    assert {(size, margin) for size, margin, _ in tasks} == {
-        (size, margin) for size in SIZES for margin in VARIANTS
+    assert {(size, reshape) for size, reshape, _ in tasks} == {
+        (size, reshape) for size in SIZES for reshape in VARIANTS
     }
 
 
 def test_task_order_is_shuffled_but_reproducible() -> None:
     sizes = tuple(range(4, 40))
-    first = [(size, margin) for size, margin, _ in build_tasks(sizes, VARIANTS, 7)]
-    again = [(size, margin) for size, margin, _ in build_tasks(sizes, VARIANTS, 7)]
-    ordered = [(size, margin) for size in sizes for margin in VARIANTS]
+    first = [
+        (size, reshape) for size, reshape, _ in build_tasks(sizes, VARIANTS, 7)
+    ]
+    again = [
+        (size, reshape) for size, reshape, _ in build_tasks(sizes, VARIANTS, 7)
+    ]
+    ordered = [(size, reshape) for size in sizes for reshape in VARIANTS]
     assert first == again
     assert first != ordered
 
@@ -35,7 +40,7 @@ def test_success_rate_run_is_well_formed() -> None:
     )
     assert set(results) == set(SIZES)
     for size, variants in results.items():
-        assert set(variants) == {"no_margin", "with_margin"}
+        assert set(variants) == KEYS
         for entry in variants.values():
             assert entry["samples"] > 0
             assert entry["kept"] <= entry["samples"]
@@ -51,11 +56,11 @@ def test_cost_comes_from_measured_cpu_time() -> None:
     is what made an under-subscribed batch look like a faster algorithm."""
     budget = 0.3
     results = run_success_rate_benchmark(
-        SIZES, (True,), seconds_per_task=budget, workers=2, entropy=12
+        SIZES, ((-1, -1),), seconds_per_task=budget, workers=2, entropy=12
     )
     measured = []
     for variants in results.values():
-        entry = variants["with_margin"]
+        entry = variants["r-1c-1"]
         measured.append(entry["cpu_seconds"])
         assert entry["microseconds_per_configuration"] == pytest.approx(
             entry["cpu_seconds"] / entry["samples"] * 1e6
@@ -79,7 +84,7 @@ def test_displacement_run_is_well_formed() -> None:
     )
     assert set(results) == {10, 16}
     for variants in results.values():
-        entry = variants["with_margin"]
+        entry = variants["r-1c-1"]
         assert entry["samples"] == 40
         assert entry["attempts"] >= entry["samples"]
         assert entry["mean"] > 0
