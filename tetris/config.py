@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from rich.console import Console
 
 from tetris import display, plotting
-from tetris.fast import parallel_displacements, target_geometry
+from tetris.fast import target_geometry
 
 __all__ = ["AtomsConfiguration", "OccupationMatrix"]
 
@@ -27,10 +27,13 @@ class AtomsConfiguration:
     is the convention Wang et al. use in their own simulations.
     """
 
+    rng: np.random.Generator
     loading_array_size: int
     occupation_matrix: np.ndarray
+    margin: bool
     target_size: int
     target_start: int
+    contraction_ratio: float
     tetriminoes_matrix: np.ndarray | None
     tetriminoes_motions: list[list[tuple[int, int]]] | None
     configuration_kept: bool | None
@@ -209,20 +212,20 @@ class AtomsConfiguration:
         deficient_columns = self._find_deficient_columns(
             tetriminoes_matrix, self.target_start, self.target_size
         )
-        configuration_kept = not deficient_columns
+        kept = not deficient_columns
 
         if console:
             display.print_summary(
                 console,
                 total_atoms,
                 total_motions,
-                configuration_kept,
+                kept,
                 deficient_columns,
             )
 
         self.tetriminoes_matrix = tetriminoes_matrix
         self.tetriminoes_motions = tetriminoes_motions
-        self.configuration_kept = configuration_kept
+        self.configuration_kept = kept
 
     def count_parallel_displacements(self) -> int:
         """Parallel displacements needed to reach the target array: the
@@ -265,7 +268,3 @@ class AtomsConfiguration:
         """Plot the loading array, the packed array, or both side by
         side. Runs `construct_tetriminoes` first if it has not run."""
         return plotting.plot_configuration(self, which, atom_radius, size)
-
-
-# kept importable next to the class it belongs with
-_ = parallel_displacements
