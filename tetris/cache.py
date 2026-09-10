@@ -32,7 +32,7 @@ class BenchmarkParameters:
     how long the run takes, not the distribution it samples."""
 
     sizes: tuple[int, ...]
-    margin_variants: tuple[bool, ...]
+    reshape_variants: tuple[tuple[int, int], ...]
     seconds_per_task: float
     workers: int
     algorithm_digest: str
@@ -42,7 +42,9 @@ class BenchmarkParameters:
         payload = json.dumps(
             {
                 "sizes": list(self.sizes),
-                "margin_variants": list(self.margin_variants),
+                "reshape_variants": [
+                    list(reshape) for reshape in self.reshape_variants
+                ],
                 "seconds_per_task": self.seconds_per_task,
                 "samples_per_task": self.samples_per_task,
                 "algorithm_digest": self.algorithm_digest,
@@ -84,7 +86,9 @@ def save_results(
             "date": datetime.now(UTC).isoformat(),
             "fingerprint": parameters.fingerprint(),
             "sizes": list(parameters.sizes),
-            "margin_variants": list(parameters.margin_variants),
+            "reshape_variants": [
+                list(reshape) for reshape in parameters.reshape_variants
+            ],
             "seconds_per_task": parameters.seconds_per_task,
             "samples_per_task": parameters.samples_per_task,
             "workers": parameters.workers,

@@ -18,6 +18,7 @@ from tetris.fast import (
     target_geometry,
 )
 from tetris.stats import standard_error, wilson_interval
+from tetris.variants import variant_key
 
 __all__ = [
     "build_tasks",
@@ -43,34 +44,36 @@ def task_generator(seed: np.random.SeedSequence) -> np.random.Generator:
 
 def build_tasks(
     sizes: tuple[int, ...],
-    margin_variants: tuple[bool, ...],
+    reshape_variants: tuple[tuple[int, int], ...],
     entropy: int,
-) -> list[tuple[int, bool, np.random.SeedSequence]]:
-    """Shuffled (size, margin, seed) tasks.
+) -> list[tuple[int, tuple[int, int], np.random.SeedSequence]]:
+    """Shuffled (size, reshape, seed) tasks.
 
     Running in size order lets any slow drift over the run, a laptop
     heating up over half an hour for instance, masquerade as a trend
     against array size. Shuffling turns it into noise. The shuffle is
     driven by the recorded entropy, so a run stays reproducible."""
     combinations = [
-        (int(size), margin) for size in sizes for margin in margin_variants
+        (int(size), tuple(reshape))
+        for size in sizes
+        for reshape in reshape_variants
     ]
     seeds = task_seeds(entropy, len(combinations))
     tasks = [
-        (size, margin, seed)
-        for (size, margin), seed in zip(combinations, seeds)
+        (size, reshape, seed)
+        for (size, reshape), seed in zip(combinations, seeds)
     ]
     random.Random(entropy).shuffle(tasks)
     return tasks
 
 
-def _sample_until(deadline: float, rng, size: int, target_size: int):
+def _sample_until(deadline: float, rng, size: int, window):
     """Draw configurations until the deadline, counting the kept ones."""
     kept = 0
     samples = 0
     while monotonic() < deadline:
         matrix = rng.integers(0, 2, size=(size, size)).astype(bool)
-        kept += configuration_kept(matrix, target_size)
+        kept += configuration_kept(matrix, window)
         samples += 1
     return kept, samples
 
@@ -80,8 +83,8 @@ def _success_rate_worker(tasks, results, seconds_per_task, active) -> None:
         task = tasks.get()
         if task is _SENTINEL:
             return
-        size, margin, seed = task
-        target_size, target_start = target_geometry(size, margin)
+        size, reshape, seed = task
+        window = target_geometry(size, reshape)
         rng = task_generator(seed)
 
         with active.get_lock():
@@ -89,7 +92,7 @@ def _success_rate_worker(tasks, results, seconds_per_task, active) -> None:
             concurrency_in = active.value
         cpu_start, wall_start = process_time(), monotonic()
         kept, samples = _sample_until(
-            wall_start + seconds_per_task, rng, size, target_size
+            wall_start + seconds_per_task, rng, size, window
         )
         cpu_seconds = process_time() - cpu_start
         wall_seconds = monotonic() - wall_start
@@ -100,13 +103,15 @@ def _success_rate_worker(tasks, results, seconds_per_task, active) -> None:
         results.put(
             {
                 "size": size,
-                "margin": margin,
+                "reshape": list(reshape),
                 "kept": kept,
                 "samples": samples,
                 "cpu_seconds": cpu_seconds,
                 "wall_seconds": wall_seconds,
-                "target_size": target_size,
-                "target_start": target_start,
+                "target_rows": window.rows,
+                "target_columns": window.columns,
+                "target_row_start": window.row_start,
+                "target_column_start": window.column_start,
                 "min_concurrency": min(concurrency_in, concurrency_out),
             }
         )
@@ -137,14 +142,14 @@ def _drain(worker, tasks_list, workers: int, *args) -> list[dict]:
 
 def _summarise(record: dict) -> tuple[int, str, dict]:
     size, kept, samples = record["size"], record["kept"], record["samples"]
-    target_size = record["target_size"]
+    sites = record["target_rows"] * record["target_columns"]
     low, high = wilson_interval(kept, samples)
     per_configuration = (
         record["cpu_seconds"] / samples * 1e6 if samples else float("nan")
     )
     return (
         size,
-        "with_margin" if record["margin"] else "no_margin",
+        variant_key(tuple(record["reshape"])),
         {
             "success_rate": kept / samples if samples else float("nan"),
             "standard_error": standard_error(kept, samples),
@@ -157,8 +162,10 @@ def _summarise(record: dict) -> tuple[int, str, dict]:
             "microseconds_per_configuration": per_configuration,
             "microseconds_per_row": per_configuration / size,
             "min_concurrency": record["min_concurrency"],
-            "contraction_ratio": (target_size / size) ** 2,
-            "target_number_of_atoms": target_size**2,
+            "contraction_ratio": sites / size**2,
+            "target_number_of_atoms": sites,
+            "target_rows": record["target_rows"],
+            "target_columns": record["target_columns"],
             "number_of_loading_sites": size**2,
         },
     )
@@ -166,12 +173,12 @@ def _summarise(record: dict) -> tuple[int, str, dict]:
 
 def run_success_rate_benchmark(
     sizes: tuple[int, ...],
-    margin_variants: tuple[bool, ...],
+    reshape_variants: tuple[tuple[int, int], ...],
     seconds_per_task: float,
     workers: int,
     entropy: int,
 ) -> dict[int, dict]:
-    tasks = build_tasks(sizes, margin_variants, entropy)
+    tasks = build_tasks(sizes, reshape_variants, entropy)
     records = _drain(_success_rate_worker, tasks, workers, seconds_per_task)
     results: dict[int, dict] = {}
     for record in records:
@@ -185,8 +192,8 @@ def _displacement_worker(tasks, results, samples_per_task, active) -> None:
         task = tasks.get()
         if task is _SENTINEL:
             return
-        size, margin, seed = task
-        target_size, target_start = target_geometry(size, margin)
+        size, reshape, seed = task
+        window = target_geometry(size, reshape)
         rng = task_generator(seed)
 
         with active.get_lock():
@@ -197,9 +204,9 @@ def _displacement_worker(tasks, results, samples_per_task, active) -> None:
         while len(displacements) < samples_per_task:
             matrix = rng.integers(0, 2, size=(size, size)).astype(bool)
             attempts += 1
-            if configuration_kept(matrix, target_size):
+            if configuration_kept(matrix, window):
                 displacements.append(
-                    parallel_displacements(matrix, target_size, target_start)
+                    parallel_displacements(matrix, window)
                 )
         cpu_seconds = process_time() - cpu_start
         with active.get_lock():
@@ -209,8 +216,10 @@ def _displacement_worker(tasks, results, samples_per_task, active) -> None:
         results.put(
             {
                 "size": size,
-                "margin": margin,
-                "target_number_of_atoms": target_size**2,
+                "reshape": list(reshape),
+                "target_number_of_atoms": window.sites,
+                "target_rows": window.rows,
+                "target_columns": window.columns,
                 "mean": float(array.mean()),
                 "std": float(array.std(ddof=1)),
                 "standard_error": float(array.std(ddof=1) / np.sqrt(len(array))),
@@ -221,6 +230,9 @@ def _displacement_worker(tasks, results, samples_per_task, active) -> None:
         )
 
 
+DISPLACEMENT_RESHAPE = (-1, -1)
+
+
 def run_displacement_benchmark(
     sizes: tuple[int, ...],
     samples_per_task: int,
@@ -229,11 +241,13 @@ def run_displacement_benchmark(
 ) -> dict[int, dict]:
     """Mean parallel displacements per accepted configuration, at a fixed
     sample count per size so that every point carries the same weight.
-    The margin variant is the one that matches the reservoir size Wang
-    et al. use in their simulations."""
-    tasks = build_tasks(sizes, (True,), entropy)
+    Only the full margin is swept: that is the reservoir size Wang et al.
+    use in their simulations, and it is their exponent this is compared
+    against."""
+    tasks = build_tasks(sizes, (DISPLACEMENT_RESHAPE,), entropy)
     records = _drain(_displacement_worker, tasks, workers, samples_per_task)
+    key = variant_key(DISPLACEMENT_RESHAPE)
     return {
-        record["size"]: {"with_margin": record}
+        record["size"]: {key: record}
         for record in sorted(records, key=lambda item: item["size"])
     }
