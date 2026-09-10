@@ -49,8 +49,9 @@ def test_success_rate_run_is_well_formed() -> None:
 def test_cost_comes_from_measured_cpu_time() -> None:
     """The nominal budget must not be reused as the measured cost: that
     is what made an under-subscribed batch look like a faster algorithm."""
+    budget = 0.3
     results = run_success_rate_benchmark(
-        SIZES, (True,), seconds_per_task=0.3, workers=2, entropy=12
+        SIZES, (True,), seconds_per_task=budget, workers=2, entropy=12
     )
     measured = []
     for variants in results.values():
@@ -59,7 +60,15 @@ def test_cost_comes_from_measured_cpu_time() -> None:
         assert entry["microseconds_per_configuration"] == pytest.approx(
             entry["cpu_seconds"] / entry["samples"] * 1e6
         )
-        assert entry["cpu_seconds"] <= entry["wall_seconds"] + 0.05
+        # the sampling loop tests its deadline before each draw, so it
+        # always overruns rather than stopping short
+        assert entry["wall_seconds"] >= budget
+        # cpu_seconds is not compared against wall_seconds: process_time
+        # sums the CPU of every thread in the process, and a threaded
+        # BLAS underneath NumPy can put it above the wall clock. What
+        # has to hold is that the number is measured rather than the
+        # budget played back
+        assert entry["cpu_seconds"] != pytest.approx(budget, abs=1e-6)
     # each task times itself, so the values are not one shared constant
     assert len(set(measured)) == len(measured)
 
