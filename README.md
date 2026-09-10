@@ -50,9 +50,6 @@ Each carries a fingerprint of the parameters it was run with and a hash of
 algorithm is never served silently from an old run. Editing either of those two
 files therefore costs a rerun, about half an hour.
 
-`view_raw_frame.py` and `sample.tif` are unrelated to the algorithm: a raw
-tweezer frame and a contrast-stretch viewer for it.
-
 ## What the numbers say
 
 Against the paper, on the margin variant it uses:
