@@ -1,0 +1,6 @@
+# Relative to the `tetris_problem.py` marimo notebook.
+# Extra source file to include to the blog post downloadable ZIP archive
+tetris/*.py
+benchmark_stats.json
+displacement_stats.json
+post_includes.txt
