@@ -18,6 +18,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# the project is not installed into the environment, so the root has to be
+# on the path for `tetris` to import under a bare `pytest` invocation
+pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["tetris"]
